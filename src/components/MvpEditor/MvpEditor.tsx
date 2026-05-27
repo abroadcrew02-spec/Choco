@@ -2,7 +2,18 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useLayers } from "./hooks/useLayers";
 import { ColorPicker } from "./components/ColorPicker";
+import { LayerPanel } from "./components/LayerPanel";
+import {
+  serializeProject,
+  downloadProject,
+  parseChocoJson,
+  deserializeRegions,
+  loadImageFromDataUrl,
+  saveProjectToBlob,
+} from "./lib/projectIO";
+import type { LayerVisibility, LayerOpacity } from "./lib/projectIO";
 
 interface PaintRegion {
   id: string;
@@ -153,8 +164,7 @@ function floodFillSelect(
 
 /**
  * Returns pixels within a circle of given radius centered at (cx, cy),
- * clamped to image bounds. Uses a Set<number> for deduplication internally
- * and returns as {x,y}[].
+ * clamped to image bounds.
  */
 function getBrushPixels(
   cx: number,
@@ -214,32 +224,83 @@ function subtractPixels(
 
 /**
  * Applies all paint regions to the base imageData and returns the composited ImageData.
+ * Respects layer visibility and opacity settings.
  */
 function compositeRegions(
   baseImageData: ImageData,
-  regions: PaintRegion[]
+  regions: PaintRegion[],
+  layerVisibility: LayerVisibility,
+  layerOpacity: LayerOpacity
 ): ImageData {
   const { width, height } = baseImageData;
+
+  // Start with a transparent canvas
   const result = new ImageData(
-    new Uint8ClampedArray(baseImageData.data),
+    new Uint8ClampedArray(width * height * 4),
     width,
     height
   );
 
-  for (const region of regions) {
-    if (region.transparent) {
-      for (const { x, y } of region.pixels) {
-        const idx = (y * width + x) * 4;
-        result.data[idx + 3] = 0;
+  // Background layer
+  if (layerVisibility.background) {
+    const bgAlpha = layerOpacity.background / 100;
+    for (let i = 0; i < baseImageData.data.length; i += 4) {
+      result.data[i] = baseImageData.data[i];
+      result.data[i + 1] = baseImageData.data[i + 1];
+      result.data[i + 2] = baseImageData.data[i + 2];
+      result.data[i + 3] = Math.round(baseImageData.data[i + 3] * bgAlpha);
+    }
+  }
+
+  // Edit layer: apply regions on top
+  if (layerVisibility.edit) {
+    const editAlpha = layerOpacity.edit / 100;
+
+    // Build edit layer ImageData from regions
+    const editLayer = new Uint8ClampedArray(width * height * 4);
+    // Copy background as base for edit layer
+    editLayer.set(result.data);
+
+    for (const region of regions) {
+      if (region.transparent) {
+        for (const { x, y } of region.pixels) {
+          const idx = (y * width + x) * 4;
+          editLayer[idx + 3] = 0;
+        }
+      } else {
+        const [r, g, b] = hexToRgb(region.color);
+        for (const { x, y } of region.pixels) {
+          const idx = (y * width + x) * 4;
+          editLayer[idx] = r;
+          editLayer[idx + 1] = g;
+          editLayer[idx + 2] = b;
+          editLayer[idx + 3] = 255;
+        }
       }
+    }
+
+    // Composite edit layer onto result using opacity
+    if (editAlpha >= 1) {
+      result.data.set(editLayer);
     } else {
-      const [r, g, b] = hexToRgb(region.color);
-      for (const { x, y } of region.pixels) {
-        const idx = (y * width + x) * 4;
-        result.data[idx] = r;
-        result.data[idx + 1] = g;
-        result.data[idx + 2] = b;
-        result.data[idx + 3] = 255;
+      for (let i = 0; i < result.data.length; i += 4) {
+        const srcA = editLayer[i + 3] / 255;
+        const dstA = result.data[i + 3] / 255;
+        const outA = srcA * editAlpha + dstA * (1 - srcA * editAlpha);
+        if (outA > 0) {
+          result.data[i] = Math.round(
+            (editLayer[i] * srcA * editAlpha + result.data[i] * dstA * (1 - srcA * editAlpha)) / outA
+          );
+          result.data[i + 1] = Math.round(
+            (editLayer[i + 1] * srcA * editAlpha + result.data[i + 1] * dstA * (1 - srcA * editAlpha)) / outA
+          );
+          result.data[i + 2] = Math.round(
+            (editLayer[i + 2] * srcA * editAlpha + result.data[i + 2] * dstA * (1 - srcA * editAlpha)) / outA
+          );
+          result.data[i + 3] = Math.round(outA * 255);
+        } else {
+          result.data[i + 3] = 0;
+        }
       }
     }
   }
@@ -362,6 +423,7 @@ export function MvpEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [baseState, setBaseState] = useState<Omit<MvpEditorState, "regions">>({
@@ -382,13 +444,12 @@ export function MvpEditor() {
   const [showHelp, setShowHelp] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
+  const layers = useLayers();
+
   // Brush stroke state
   const isBrushingRef = useRef(false);
-  // Pixels accumulated in the current stroke (using Set<number> for deduplication)
   const strokePixelSetRef = useRef<Set<number>>(new Set());
-  // The region index being modified (for mask paint Shift/Alt), -1 = new stroke
   const maskTargetIndexRef = useRef<number>(-1);
-  // Whether current stroke is subtract (Alt) or add (Shift/default)
   const maskSubtractRef = useRef<boolean>(false);
 
   // Brush cursor overlay state
@@ -434,7 +495,6 @@ export function MvpEditor() {
 
   const regions = regionHistory.current;
 
-  // Add color to recent colors list (dedup, max 8, newest first)
   const addRecentColor = useCallback((hex: string) => {
     setRecentColors((prev) => {
       const filtered = prev.filter((c) => c !== hex);
@@ -442,15 +502,20 @@ export function MvpEditor() {
     });
   }, []);
 
-  // Redraw canvas whenever regions or base image changes
+  // Redraw canvas whenever regions, base image, or layer settings change
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !baseState.imageData) return;
     const ctx = canvas.getContext("2d")!;
-    const composited = compositeRegions(baseState.imageData, regions);
+    const composited = compositeRegions(
+      baseState.imageData,
+      regions,
+      layers.layerVisibility,
+      layers.layerOpacity
+    );
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.putImageData(composited, 0, 0);
-  }, [baseState, regions]);
+  }, [baseState, regions, layers.layerVisibility, layers.layerOpacity]);
 
   // Draw brush cursor on overlay canvas
   useEffect(() => {
@@ -518,6 +583,7 @@ export function MvpEditor() {
           URL.revokeObjectURL(url);
           setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
           regionHistory.reset([]);
+          layers.resetLayers();
           setStatus(`画像読み込み完了: ${w}x${h}`);
         };
         img.onerror = () => {
@@ -547,6 +613,7 @@ export function MvpEditor() {
       URL.revokeObjectURL(url);
       setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
       regionHistory.reset([]);
+      layers.resetLayers();
       setStatus(`画像読み込み完了: ${w}x${h}`);
     };
     img.onerror = () => {
@@ -554,7 +621,7 @@ export function MvpEditor() {
       URL.revokeObjectURL(url);
     };
     img.src = url;
-  }, [regionHistory]);
+  }, [regionHistory, layers]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -575,11 +642,91 @@ export function MvpEditor() {
     [loadImageFromFile]
   );
 
+  // ---- Project save ----
+
+  const handleSaveProject = useCallback(() => {
+    if (!baseState.imageData) {
+      setStatus("保存する画像がありません");
+      return;
+    }
+
+    const project = serializeProject({
+      imageData: baseState.imageData,
+      imageWidth: baseState.naturalWidth,
+      imageHeight: baseState.naturalHeight,
+      regions,
+      selectedColor,
+      tolerance,
+      brushSize,
+      layerVisibility: layers.layerVisibility,
+      layerOpacity: layers.layerOpacity,
+    });
+
+    const { warnLarge } = saveProjectToBlob(project);
+    if (warnLarge) {
+      const confirmed = window.confirm(
+        "プロジェクトファイルが 10MB を超えています。保存しますか？"
+      );
+      if (!confirmed) return;
+    }
+
+    downloadProject(project);
+    setStatus("プロジェクトを保存しました");
+  }, [baseState, regions, selectedColor, tolerance, brushSize, layers]);
+
+  // ---- Project load ----
+
+  const handleLoadProject = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      // Reset input so the same file can be re-loaded
+      e.target.value = "";
+
+      try {
+        const text = await file.text();
+        const project = parseChocoJson(text);
+        const { imageData, width, height } = await loadImageFromDataUrl(
+          project.image
+        );
+
+        const restoredRegions = deserializeRegions(project.regions);
+
+        setBaseState({ imageData, naturalWidth: width, naturalHeight: height });
+        regionHistory.reset(restoredRegions);
+        setSelectedColor(project.selectedColor);
+        setTolerance(project.tolerance);
+        setBrushSize(project.brushSize);
+
+        const vis: LayerVisibility = project.layerVisibility ?? {
+          background: true,
+          edit: true,
+        };
+        const opa: LayerOpacity = project.layerOpacity ?? {
+          background: 100,
+          edit: 100,
+        };
+        layers.resetLayers(vis, opa);
+
+        setStatus(
+          `プロジェクト読み込み完了: ${width}x${height}, ${restoredRegions.length} regions`
+        );
+      } catch (err) {
+        setStatus(
+          `読み込みエラー: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    },
+    [regionHistory, layers]
+  );
+
   // ---- Brush event handlers ----
 
   const handleBrushMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (spacePressed || mode !== "brush" || !baseState.imageData) return;
+      // Guard: only allow drawing on the edit layer
+      if (layers.activeLayerId !== "edit") return;
       e.preventDefault();
       const coords = getCanvasCoords(e);
       if (!coords) return;
@@ -588,14 +735,12 @@ export function MvpEditor() {
       strokePixelSetRef.current = new Set<number>();
       maskSubtractRef.current = e.altKey;
 
-      // For mask paint: if Shift or Alt, target the last region
       if ((e.shiftKey || e.altKey) && regions.length > 0) {
         maskTargetIndexRef.current = regions.length - 1;
       } else {
         maskTargetIndexRef.current = -1;
       }
 
-      // Paint initial brush stamp
       const newPixels = getBrushPixels(
         coords.x,
         coords.y,
@@ -607,7 +752,7 @@ export function MvpEditor() {
         strokePixelSetRef.current.add(p.y * baseState.naturalWidth + p.x);
       });
     },
-    [spacePressed, mode, baseState, brushSize, regions, getCanvasCoords]
+    [spacePressed, mode, baseState, brushSize, regions, getCanvasCoords, layers.activeLayerId]
   );
 
   const handleBrushMouseMove = useCallback(
@@ -616,7 +761,6 @@ export function MvpEditor() {
 
       const coords = getCanvasCoords(e);
 
-      // Update brush cursor regardless of whether we're painting
       if (coords) {
         setBrushCursorPos({ cx: coords.x, cy: coords.y });
       } else {
@@ -655,7 +799,6 @@ export function MvpEditor() {
     const isSubtract = maskSubtractRef.current;
 
     if (targetIdx >= 0 && targetIdx < regions.length) {
-      // Mask paint: modify the target region
       const target = regions[targetIdx];
       const updatedPixels = isSubtract
         ? subtractPixels(target.pixels, strokePixels, baseState.naturalWidth)
@@ -670,7 +813,6 @@ export function MvpEditor() {
           : `マスク追加: ${strokePixels.length}px`
       );
     } else {
-      // New brush stroke region
       const newRegion: PaintRegion = {
         id: `region-${Date.now()}`,
         pixels: strokePixels,
@@ -699,6 +841,8 @@ export function MvpEditor() {
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (spacePressed || mode === "brush") return;
+      // Guard: only allow drawing on the edit layer
+      if (layers.activeLayerId !== "edit") return;
       const canvas = canvasRef.current;
       if (!canvas || !baseState.imageData) return;
 
@@ -724,7 +868,7 @@ export function MvpEditor() {
           : `バケツ塗り: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, layers.activeLayerId]
   );
 
   const handleReset = useCallback(() => {
@@ -755,14 +899,19 @@ export function MvpEditor() {
   const handleExportPng = useCallback(() => {
     if (!baseState.imageData) return;
 
-    const composited = compositeRegions(baseState.imageData, regions);
+    const composited = compositeRegions(
+      baseState.imageData,
+      regions,
+      layers.layerVisibility,
+      layers.layerOpacity
+    );
     const url = imageDataToPngDataUrl(composited);
     const a = document.createElement("a");
     a.href = url;
     a.download = "export.png";
     a.click();
     setStatus("PNGをエクスポートしました");
-  }, [baseState, regions]);
+  }, [baseState, regions, layers.layerVisibility, layers.layerOpacity]);
 
   const canvasCursor = spacePressed
     ? zoom.isPanning
@@ -775,6 +924,8 @@ export function MvpEditor() {
         : "default";
 
   const zoomPercent = Math.round(zoom.scale * 100);
+
+  const isEditLayerActive = layers.activeLayerId === "edit";
 
   return (
     <div
@@ -1000,6 +1151,34 @@ export function MvpEditor() {
           PNG出力
         </button>
 
+        <div style={dividerStyle} />
+
+        {/* Project save/load */}
+        <button
+          type="button"
+          onClick={handleSaveProject}
+          disabled={!baseState.imageData}
+          style={{ ...btnStyle, background: "#225566" }}
+          title="プロジェクトを .choco ファイルとして保存"
+        >
+          保存
+        </button>
+        <button
+          type="button"
+          onClick={() => projectFileInputRef.current?.click()}
+          style={{ ...btnStyle, background: "#225566" }}
+          title="プロジェクトファイル (.choco) を開く"
+        >
+          読込
+        </button>
+        <input
+          ref={projectFileInputRef}
+          type="file"
+          accept=".choco,application/json"
+          style={{ display: "none" }}
+          onChange={handleLoadProject}
+        />
+
         {/* Help */}
         <button
           type="button"
@@ -1014,129 +1193,164 @@ export function MvpEditor() {
         <span style={{ marginLeft: "auto", fontSize: 11, color: "#888" }}>{status}</span>
       </div>
 
-      {/* Canvas area */}
-      <div
-        ref={containerRef}
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        onWheel={zoom.onWheel}
-        onMouseDown={zoom.onMouseDown}
-        onMouseMove={zoom.onMouseMove}
-        onMouseUp={zoom.onMouseUp}
-        onMouseLeave={zoom.onMouseUp}
-        style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-          position: "relative",
-          cursor: canvasCursor,
-          backgroundImage:
-            "linear-gradient(45deg, #3a3a3a 25%, transparent 25%), " +
-            "linear-gradient(-45deg, #3a3a3a 25%, transparent 25%), " +
-            "linear-gradient(45deg, transparent 75%, #3a3a3a 75%), " +
-            "linear-gradient(-45deg, transparent 75%, #3a3a3a 75%)",
-          backgroundSize: "16px 16px",
-          backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-        }}
-        onClick={() => {
-          if (showColorPicker) setShowColorPicker(false);
-        }}
-      >
-        {!baseState.imageData ? (
-          <div
-            style={{
-              border: "2px dashed #666",
-              borderRadius: 8,
-              padding: "48px 64px",
-              textAlign: "center",
-              color: "#888",
-            }}
-          >
-            <p style={{ margin: 0, fontSize: 18 }}>ここに画像をドロップ</p>
-            <p style={{ margin: "8px 0 0", fontSize: 13 }}>または「画像を開く」ボタン</p>
-          </div>
-        ) : (
-          <div
-            style={{
-              transform: `translate(${zoom.offsetX}px, ${zoom.offsetY}px) scale(${zoom.scale})`,
-              transformOrigin: "0 0",
-              position: "absolute",
-              top: 0,
-              left: 0,
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              width={baseState.naturalWidth}
-              height={baseState.naturalHeight}
-              onClick={handleCanvasClick}
-              onMouseDown={handleBrushMouseDown}
-              onMouseMove={handleBrushMouseMove}
-              onMouseUp={handleBrushMouseUp}
-              onMouseLeave={handleBrushMouseLeave}
+      {/* Main content area: canvas + layer panel */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        {/* Canvas area */}
+        <div
+          ref={containerRef}
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+          onWheel={zoom.onWheel}
+          onMouseDown={zoom.onMouseDown}
+          onMouseMove={zoom.onMouseMove}
+          onMouseUp={zoom.onMouseUp}
+          onMouseLeave={zoom.onMouseUp}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+            position: "relative",
+            cursor: canvasCursor,
+            backgroundImage:
+              "linear-gradient(45deg, #3a3a3a 25%, transparent 25%), " +
+              "linear-gradient(-45deg, #3a3a3a 25%, transparent 25%), " +
+              "linear-gradient(45deg, transparent 75%, #3a3a3a 75%), " +
+              "linear-gradient(-45deg, transparent 75%, #3a3a3a 75%)",
+            backgroundSize: "16px 16px",
+            backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+          }}
+          onClick={() => {
+            if (showColorPicker) setShowColorPicker(false);
+          }}
+        >
+          {!baseState.imageData ? (
+            <div
               style={{
-                cursor: canvasCursor,
-                display: "block",
+                border: "2px dashed #666",
+                borderRadius: 8,
+                padding: "48px 64px",
+                textAlign: "center",
+                color: "#888",
+              }}
+            >
+              <p style={{ margin: 0, fontSize: 18 }}>ここに画像をドロップ</p>
+              <p style={{ margin: "8px 0 0", fontSize: 13 }}>または「画像を開く」ボタン</p>
+            </div>
+          ) : (
+            <div
+              style={{
+                transform: `translate(${zoom.offsetX}px, ${zoom.offsetY}px) scale(${zoom.scale})`,
+                transformOrigin: "0 0",
                 position: "absolute",
                 top: 0,
                 left: 0,
               }}
-            />
-            {/* Brush cursor overlay */}
-            <canvas
-              ref={overlayCanvasRef}
-              width={baseState.naturalWidth}
-              height={baseState.naturalHeight}
+            >
+              <canvas
+                ref={canvasRef}
+                width={baseState.naturalWidth}
+                height={baseState.naturalHeight}
+                onClick={handleCanvasClick}
+                onMouseDown={handleBrushMouseDown}
+                onMouseMove={handleBrushMouseMove}
+                onMouseUp={handleBrushMouseUp}
+                onMouseLeave={handleBrushMouseLeave}
+                style={{
+                  cursor: canvasCursor,
+                  display: "block",
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  opacity: !isEditLayerActive ? 0.6 : 1,
+                }}
+              />
+              {/* Brush cursor overlay */}
+              <canvas
+                ref={overlayCanvasRef}
+                width={baseState.naturalWidth}
+                height={baseState.naturalHeight}
+                style={{
+                  display: "block",
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  pointerEvents: "none",
+                }}
+              />
+            </div>
+          )}
+
+          {/* Status bar */}
+          {baseState.imageData && (
+            <div
               style={{
-                display: "block",
                 position: "absolute",
-                top: 0,
-                left: 0,
+                bottom: 8,
+                left: 12,
+                fontSize: 11,
+                color: "#aaa",
+                background: "rgba(0,0,0,0.5)",
+                padding: "2px 8px",
+                borderRadius: 3,
                 pointerEvents: "none",
               }}
-            />
-          </div>
-        )}
+            >
+              ツール: {MODE_LABEL[mode]} | レイヤー: {isEditLayerActive ? "編集" : "背景"}
+            </div>
+          )}
 
-        {/* Status bar */}
-        {baseState.imageData && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 8,
-              left: 12,
-              fontSize: 11,
-              color: "#aaa",
-              background: "rgba(0,0,0,0.5)",
-              padding: "2px 8px",
-              borderRadius: 3,
-              pointerEvents: "none",
-            }}
-          >
-            ツール: {MODE_LABEL[mode]}
-          </div>
-        )}
+          {/* Zoom indicator */}
+          {baseState.imageData && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: 8,
+                right: 12,
+                fontSize: 11,
+                color: "#aaa",
+                background: "rgba(0,0,0,0.5)",
+                padding: "2px 6px",
+                borderRadius: 3,
+                pointerEvents: "none",
+              }}
+            >
+              {zoomPercent}%
+            </div>
+          )}
 
-        {/* Zoom indicator */}
-        {baseState.imageData && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 8,
-              right: 12,
-              fontSize: 11,
-              color: "#aaa",
-              background: "rgba(0,0,0,0.5)",
-              padding: "2px 6px",
-              borderRadius: 3,
-              pointerEvents: "none",
-            }}
-          >
-            {zoomPercent}%
-          </div>
-        )}
+          {/* Non-edit layer drawing warning */}
+          {baseState.imageData && !isEditLayerActive && (
+            <div
+              style={{
+                position: "absolute",
+                top: 8,
+                left: "50%",
+                transform: "translateX(-50%)",
+                fontSize: 12,
+                color: "#ffcc44",
+                background: "rgba(0,0,0,0.7)",
+                padding: "4px 12px",
+                borderRadius: 4,
+                pointerEvents: "none",
+                border: "1px solid #664400",
+              }}
+            >
+              背景レイヤーが選択中 — 描画は編集レイヤーを選択してください
+            </div>
+          )}
+        </div>
+
+        {/* Layer panel */}
+        <LayerPanel
+          layerVisibility={layers.layerVisibility}
+          layerOpacity={layers.layerOpacity}
+          activeLayerId={layers.activeLayerId}
+          onVisibilityChange={layers.setLayerVisibility}
+          onOpacityChange={layers.setLayerOpacity}
+          onActiveLayerChange={layers.setActiveLayerId}
+        />
       </div>
 
       {/* Help modal */}
