@@ -1,4 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
+import { useUndoRedo } from "./hooks/useUndoRedo";
+import { useZoomPan } from "./hooks/useZoomPan";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
 interface PaintRegion {
   id: string;
@@ -21,7 +24,6 @@ const SVG_TARGET_LONG_EDGE = 2048;
 /**
  * Rewrites an SVG string so that its rendered width/height will produce a
  * rasterized bitmap with a long edge of SVG_TARGET_LONG_EDGE pixels.
- * Returns the rewritten SVG text plus the target width and height.
  */
 function rewriteSvgForHighResRasterize(svgText: string): {
   text: string;
@@ -193,9 +195,6 @@ function imageDataToPngDataUrl(imageData: ImageData): string {
 
 /**
  * Renders a single paint region as a PNG data URL.
- * The canvas is the same size as the source image (width x height).
- * Only the pixels listed in region.pixels are filled with region.color (alpha=255);
- * all other pixels remain fully transparent (alpha=0).
  */
 function regionToPngDataUrl(
   region: PaintRegion,
@@ -224,10 +223,6 @@ function regionToPngDataUrl(
 
 /**
  * Builds an SVG with pixel-accurate color regions.
- * The base image is embedded as an <image> element (with transparent mask applied
- * when transparent regions exist). Each color-change region is rendered as a
- * separate full-canvas PNG layer so that only the exact flood-filled pixels are
- * painted — no bounding-box approximation.
  */
 function buildSvg(
   imageData: ImageData,
@@ -277,31 +272,87 @@ ${colorRegionElements}
 </svg>`;
 }
 
+const SHORTCUT_HELP: { key: string; description: string }[] = [
+  { key: "B", description: "色変更モード" },
+  { key: "E", description: "透過モード" },
+  { key: "Ctrl+Z", description: "元に戻す (Undo)" },
+  { key: "Ctrl+Y / Ctrl+Shift+Z", description: "やり直し (Redo)" },
+  { key: "Ctrl+0", description: "フィット表示" },
+  { key: "Ctrl+1", description: "100% 表示" },
+  { key: "Space + ドラッグ", description: "パン（移動）" },
+  { key: "ホイール", description: "ズームイン/アウト" },
+  { key: "Esc", description: "予約 (将来使用)" },
+];
+
 export function MvpEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const [state, setState] = useState<MvpEditorState>({
+  const [baseState, setBaseState] = useState<Omit<MvpEditorState, "regions">>({
     imageData: null,
     naturalWidth: 0,
     naturalHeight: 0,
-    regions: [],
   });
+
+  const regionHistory = useUndoRedo<PaintRegion[]>([]);
 
   const [mode, setMode] = useState<"color" | "transparent">("color");
   const [selectedColor, setSelectedColor] = useState(DEFAULT_COLOR);
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
   const [status, setStatus] = useState("画像を読み込んでください");
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
-  // Redraw canvas whenever state changes
+  const zoom = useZoomPan(spacePressed);
+
+  const handleFit = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || baseState.naturalWidth === 0) return;
+    zoom.fitToContainer(
+      container.clientWidth,
+      container.clientHeight,
+      baseState.naturalWidth,
+      baseState.naturalHeight
+    );
+  }, [zoom, baseState.naturalWidth, baseState.naturalHeight]);
+
+  const handleScale100 = useCallback(() => {
+    zoom.setScale100();
+  }, [zoom]);
+
+  const handleUndo = useCallback(() => {
+    if (!regionHistory.canUndo) return;
+    regionHistory.undo();
+    setStatus("元に戻しました");
+  }, [regionHistory]);
+
+  const handleRedo = useCallback(() => {
+    if (!regionHistory.canRedo) return;
+    regionHistory.redo();
+    setStatus("やり直しました");
+  }, [regionHistory]);
+
+  useKeyboardShortcuts({
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onFit: handleFit,
+    onScale100: handleScale100,
+    onModeChange: setMode,
+    setSpacePressed,
+  });
+
+  const regions = regionHistory.current;
+
+  // Redraw canvas whenever regions or base image changes
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !state.imageData) return;
+    if (!canvas || !baseState.imageData) return;
     const ctx = canvas.getContext("2d")!;
-    const composited = compositeRegions(state.imageData, state.regions);
+    const composited = compositeRegions(baseState.imageData, regions);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.putImageData(composited, 0, 0);
-  }, [state]);
+  }, [baseState, regions]);
 
   const loadImageFromFile = useCallback((file: File) => {
     const isSvg =
@@ -331,12 +382,8 @@ export function MvpEditor() {
           ctx.drawImage(img, 0, 0, w, h);
           const imageData = ctx.getImageData(0, 0, w, h);
           URL.revokeObjectURL(url);
-          setState({
-            imageData,
-            naturalWidth: w,
-            naturalHeight: h,
-            regions: [],
-          });
+          setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
+          regionHistory.reset([]);
           setStatus(`画像読み込み完了: ${w}x${h}`);
         };
         img.onerror = () => {
@@ -364,13 +411,8 @@ export function MvpEditor() {
       ctx.drawImage(img, 0, 0);
       const imageData = ctx.getImageData(0, 0, w, h);
       URL.revokeObjectURL(url);
-
-      setState({
-        imageData,
-        naturalWidth: w,
-        naturalHeight: h,
-        regions: [],
-      });
+      setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
+      regionHistory.reset([]);
       setStatus(`画像読み込み完了: ${w}x${h}`);
     };
     img.onerror = () => {
@@ -378,7 +420,7 @@ export function MvpEditor() {
       URL.revokeObjectURL(url);
     };
     img.src = url;
-  }, []);
+  }, [regionHistory]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -401,18 +443,19 @@ export function MvpEditor() {
 
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (spacePressed) return;
       const canvas = canvasRef.current;
-      if (!canvas || !state.imageData) return;
+      if (!canvas || !baseState.imageData) return;
 
       const rect = canvas.getBoundingClientRect();
-      const scaleX = state.naturalWidth / rect.width;
-      const scaleY = state.naturalHeight / rect.height;
+      const scaleX = baseState.naturalWidth / rect.width;
+      const scaleY = baseState.naturalHeight / rect.height;
       const x = Math.floor((e.clientX - rect.left) * scaleX);
       const y = Math.floor((e.clientY - rect.top) * scaleY);
 
-      if (x < 0 || x >= state.naturalWidth || y < 0 || y >= state.naturalHeight) return;
+      if (x < 0 || x >= baseState.naturalWidth || y < 0 || y >= baseState.naturalHeight) return;
 
-      const pixels = floodFillSelect(state.imageData, x, y, tolerance);
+      const pixels = floodFillSelect(baseState.imageData, x, y, tolerance);
       if (pixels.length === 0) return;
 
       const newRegion: PaintRegion = {
@@ -422,10 +465,7 @@ export function MvpEditor() {
         transparent: mode === "transparent",
       };
 
-      setState((prev) => ({
-        ...prev,
-        regions: [...prev.regions, newRegion],
-      }));
+      regionHistory.push([...regions, newRegion]);
 
       setStatus(
         mode === "transparent"
@@ -433,30 +473,22 @@ export function MvpEditor() {
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [state, tolerance, selectedColor, mode]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory]
   );
 
-  const handleUndo = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      regions: prev.regions.slice(0, -1),
-    }));
-    setStatus("元に戻しました");
-  }, []);
-
   const handleReset = useCallback(() => {
-    setState((prev) => ({ ...prev, regions: [] }));
+    regionHistory.reset([]);
     setStatus("全リセット完了");
-  }, []);
+  }, [regionHistory]);
 
   const handleExportSvg = useCallback(() => {
-    if (!state.imageData) return;
+    if (!baseState.imageData) return;
 
     const svgString = buildSvg(
-      state.imageData,
-      state.regions,
-      state.naturalWidth,
-      state.naturalHeight
+      baseState.imageData,
+      regions,
+      baseState.naturalWidth,
+      baseState.naturalHeight
     );
 
     const blob = new Blob([svgString], { type: "image/svg+xml" });
@@ -467,26 +499,29 @@ export function MvpEditor() {
     a.click();
     URL.revokeObjectURL(url);
     setStatus("SVGをエクスポートしました");
-  }, [state]);
+  }, [baseState, regions]);
 
   const handleExportPng = useCallback(() => {
-    if (!state.imageData) return;
+    if (!baseState.imageData) return;
 
-    const composited = compositeRegions(state.imageData, state.regions);
+    const composited = compositeRegions(baseState.imageData, regions);
     const url = imageDataToPngDataUrl(composited);
     const a = document.createElement("a");
     a.href = url;
     a.download = "export.png";
     a.click();
     setStatus("PNGをエクスポートしました");
-  }, [state]);
+  }, [baseState, regions]);
 
-  const canvasStyle: React.CSSProperties = {
-    maxWidth: "100%",
-    maxHeight: "100%",
-    cursor: state.imageData ? "crosshair" : "default",
-    display: "block",
-  };
+  const canvasCursor = spacePressed
+    ? zoom.isPanning
+      ? "grabbing"
+      : "grab"
+    : baseState.imageData
+      ? "crosshair"
+      : "default";
+
+  const zoomPercent = Math.round(zoom.scale * 100);
 
   return (
     <div
@@ -514,6 +549,7 @@ export function MvpEditor() {
       >
         {/* File open */}
         <button
+          type="button"
           onClick={() => fileInputRef.current?.click()}
           style={btnStyle}
         >
@@ -527,19 +563,23 @@ export function MvpEditor() {
           onChange={handleFileChange}
         />
 
-        <div style={{ width: 1, height: 24, background: "#444" }} />
+        <div style={dividerStyle} />
 
         {/* Mode */}
-        <label style={{ fontSize: 12, color: "#aaa" }}>モード:</label>
+        <label style={labelStyle}>モード:</label>
         <button
+          type="button"
           onClick={() => setMode("color")}
           style={{ ...btnStyle, background: mode === "color" ? "#0066cc" : "#444" }}
+          title="色変更モード (B)"
         >
           色変更
         </button>
         <button
+          type="button"
           onClick={() => setMode("transparent")}
           style={{ ...btnStyle, background: mode === "transparent" ? "#0066cc" : "#444" }}
+          title="透過モード (E)"
         >
           透過
         </button>
@@ -547,7 +587,7 @@ export function MvpEditor() {
         {/* Color picker */}
         {mode === "color" && (
           <>
-            <label style={{ fontSize: 12, color: "#aaa" }}>色:</label>
+            <label style={labelStyle}>色:</label>
             <input
               type="color"
               value={selectedColor}
@@ -558,7 +598,7 @@ export function MvpEditor() {
         )}
 
         {/* Tolerance */}
-        <label style={{ fontSize: 12, color: "#aaa" }}>許容値: {tolerance}</label>
+        <label style={labelStyle}>許容値: {tolerance}</label>
         <input
           type="range"
           min={0}
@@ -568,32 +608,86 @@ export function MvpEditor() {
           style={{ width: 80 }}
         />
 
-        <div style={{ width: 1, height: 24, background: "#444" }} />
+        <div style={dividerStyle} />
 
-        {/* Undo / Reset */}
-        <button onClick={handleUndo} disabled={state.regions.length === 0} style={btnStyle}>
-          元に戻す
+        {/* Undo / Redo */}
+        <button
+          type="button"
+          onClick={handleUndo}
+          disabled={!regionHistory.canUndo}
+          style={btnStyle}
+          title="元に戻す (Ctrl+Z)"
+        >
+          Undo
         </button>
-        <button onClick={handleReset} disabled={state.regions.length === 0} style={{ ...btnStyle, background: "#662222" }}>
+        <button
+          type="button"
+          onClick={handleRedo}
+          disabled={!regionHistory.canRedo}
+          style={btnStyle}
+          title="やり直し (Ctrl+Y)"
+        >
+          Redo
+        </button>
+        <button
+          type="button"
+          onClick={handleReset}
+          disabled={regions.length === 0}
+          style={{ ...btnStyle, background: "#662222" }}
+        >
           全リセット
         </button>
 
-        <div style={{ width: 1, height: 24, background: "#444" }} />
+        <div style={dividerStyle} />
+
+        {/* Zoom controls */}
+        <button
+          type="button"
+          onClick={handleFit}
+          disabled={!baseState.imageData}
+          style={btnStyle}
+          title="フィット表示 (Ctrl+0)"
+        >
+          Fit
+        </button>
+        <button
+          type="button"
+          onClick={handleScale100}
+          disabled={!baseState.imageData}
+          style={btnStyle}
+          title="100% 表示 (Ctrl+1)"
+        >
+          100%
+        </button>
+
+        <div style={dividerStyle} />
 
         {/* Export */}
         <button
+          type="button"
           onClick={handleExportSvg}
-          disabled={!state.imageData}
+          disabled={!baseState.imageData}
           style={{ ...btnStyle, background: "#226622" }}
         >
           SVG出力
         </button>
         <button
+          type="button"
           onClick={handleExportPng}
-          disabled={!state.imageData}
+          disabled={!baseState.imageData}
           style={{ ...btnStyle, background: "#226622" }}
         >
           PNG出力
+        </button>
+
+        {/* Help */}
+        <button
+          type="button"
+          onClick={() => setShowHelp(true)}
+          style={{ ...btnStyle, marginLeft: 4 }}
+          title="ショートカット一覧"
+        >
+          ?
         </button>
 
         {/* Status */}
@@ -602,15 +696,22 @@ export function MvpEditor() {
 
       {/* Canvas area */}
       <div
+        ref={containerRef}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
+        onWheel={zoom.onWheel}
+        onMouseDown={zoom.onMouseDown}
+        onMouseMove={zoom.onMouseMove}
+        onMouseUp={zoom.onMouseUp}
+        onMouseLeave={zoom.onMouseUp}
         style={{
           flex: 1,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          overflow: "auto",
+          overflow: "hidden",
           position: "relative",
+          cursor: canvasCursor,
           backgroundImage:
             "linear-gradient(45deg, #3a3a3a 25%, transparent 25%), " +
             "linear-gradient(-45deg, #3a3a3a 25%, transparent 25%), " +
@@ -620,7 +721,7 @@ export function MvpEditor() {
           backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
         }}
       >
-        {!state.imageData ? (
+        {!baseState.imageData ? (
           <div
             style={{
               border: "2px dashed #666",
@@ -634,15 +735,94 @@ export function MvpEditor() {
             <p style={{ margin: "8px 0 0", fontSize: 13 }}>または「画像を開く」ボタン</p>
           </div>
         ) : (
-          <canvas
-            ref={canvasRef}
-            width={state.naturalWidth}
-            height={state.naturalHeight}
-            onClick={handleCanvasClick}
-            style={canvasStyle}
-          />
+          <div
+            style={{
+              transform: `translate(${zoom.offsetX}px, ${zoom.offsetY}px) scale(${zoom.scale})`,
+              transformOrigin: "0 0",
+              position: "absolute",
+              top: 0,
+              left: 0,
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              width={baseState.naturalWidth}
+              height={baseState.naturalHeight}
+              onClick={handleCanvasClick}
+              style={{
+                cursor: canvasCursor,
+                display: "block",
+              }}
+            />
+          </div>
+        )}
+
+        {/* Zoom indicator */}
+        {baseState.imageData && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 8,
+              right: 12,
+              fontSize: 11,
+              color: "#aaa",
+              background: "rgba(0,0,0,0.5)",
+              padding: "2px 6px",
+              borderRadius: 3,
+              pointerEvents: "none",
+            }}
+          >
+            {zoomPercent}%
+          </div>
         )}
       </div>
+
+      {/* Help modal */}
+      {showHelp && (
+        <div
+          onClick={() => setShowHelp(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#1e1e1e",
+              border: "1px solid #555",
+              borderRadius: 8,
+              padding: "24px 32px",
+              minWidth: 360,
+              color: "#f0f0f0",
+            }}
+          >
+            <h3 style={{ margin: "0 0 16px", fontSize: 16 }}>ショートカット一覧</h3>
+            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+              <tbody>
+                {SHORTCUT_HELP.map(({ key, description }) => (
+                  <tr key={key}>
+                    <td style={{ padding: "4px 16px 4px 0", color: "#88ccff", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                      {key}
+                    </td>
+                    <td style={{ padding: "4px 0", color: "#ccc" }}>{description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: 16, textAlign: "right" }}>
+              <button type="button" onClick={() => setShowHelp(false)} style={btnStyle}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -655,4 +835,15 @@ const btnStyle: React.CSSProperties = {
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 13,
+};
+
+const dividerStyle: React.CSSProperties = {
+  width: 1,
+  height: 24,
+  background: "#444",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#aaa",
 };
