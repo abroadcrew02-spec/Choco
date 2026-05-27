@@ -138,8 +138,42 @@ function imageDataToPngDataUrl(imageData: ImageData): string {
 }
 
 /**
- * Builds a very simple SVG: base image embedded as <image>, each paint region
- * approximated as a <rect> over its bounding box (sufficient for MVP export).
+ * Renders a single paint region as a PNG data URL.
+ * The canvas is the same size as the source image (width x height).
+ * Only the pixels listed in region.pixels are filled with region.color (alpha=255);
+ * all other pixels remain fully transparent (alpha=0).
+ */
+function regionToPngDataUrl(
+  region: PaintRegion,
+  width: number,
+  height: number
+): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+
+  const imageData = ctx.createImageData(width, height);
+  const [r, g, b] = hexToRgb(region.color);
+
+  for (const { x, y } of region.pixels) {
+    const idx = (y * width + x) * 4;
+    imageData.data[idx] = r;
+    imageData.data[idx + 1] = g;
+    imageData.data[idx + 2] = b;
+    imageData.data[idx + 3] = 255;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+/**
+ * Builds an SVG with pixel-accurate color regions.
+ * The base image is embedded as an <image> element (with transparent mask applied
+ * when transparent regions exist). Each color-change region is rendered as a
+ * separate full-canvas PNG layer so that only the exact flood-filled pixels are
+ * painted — no bounding-box approximation.
  */
 function buildSvg(
   imageData: ImageData,
@@ -147,21 +181,7 @@ function buildSvg(
   width: number,
   height: number
 ): string {
-  const pngDataUrl = imageDataToPngDataUrl(imageData);
-  const base64 = pngDataUrl;
-
-  const regionElements = regions
-    .filter((r) => !r.transparent && r.pixels.length > 0)
-    .map((region) => {
-      const xs = region.pixels.map((p) => p.x);
-      const ys = region.pixels.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-      const maxX = Math.max(...xs);
-      const maxY = Math.max(...ys);
-      return `  <rect x="${minX}" y="${minY}" width="${maxX - minX + 1}" height="${maxY - minY + 1}" fill="${region.color}" />`;
-    })
-    .join("\n");
+  const baseDataUrl = imageDataToPngDataUrl(imageData);
 
   const transparentRegionPixels = regions
     .filter((r) => r.transparent)
@@ -184,14 +204,22 @@ ${transparentMaskRects}
 
   const imageElement =
     transparentMaskRects.length > 0
-      ? `  <image href="${base64}" width="${width}" height="${height}" mask="url(#transparentMask)" />`
-      : `  <image href="${base64}" width="${width}" height="${height}" />`;
+      ? `  <image href="${baseDataUrl}" width="${width}" height="${height}" mask="url(#transparentMask)" />`
+      : `  <image href="${baseDataUrl}" width="${width}" height="${height}" />`;
+
+  const colorRegionElements = regions
+    .filter((r) => !r.transparent && r.pixels.length > 0)
+    .map((region) => {
+      const pngDataUrl = regionToPngDataUrl(region, width, height);
+      return `  <image href="${pngDataUrl}" width="${width}" height="${height}" />`;
+    })
+    .join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
 ${maskSection}
 ${imageElement}
-${regionElements}
+${colorRegionElements}
 </svg>`;
 }
 
