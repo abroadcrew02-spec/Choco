@@ -1,0 +1,172 @@
+name: Release
+
+# Triggered by version tags: v1.2.3
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Minimal permissions for the source repo job
+permissions:
+  contents: read
+
+jobs:
+  build-and-release:
+    name: Build & Release (Windows)
+    runs-on: windows-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Checkout source
+      # ------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Rust toolchain
+      # ------------------------------------------------------------------
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      # ------------------------------------------------------------------
+      # 3. Node.js + pnpm
+      # ------------------------------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Cache pnpm
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-release-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-release-
+
+      # ------------------------------------------------------------------
+      # 4. Install frontend dependencies
+      # ------------------------------------------------------------------
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ------------------------------------------------------------------
+      # 5. Build WASM (required before tauri build)
+      # ------------------------------------------------------------------
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build WASM
+        run: pnpm wasm:build
+
+      # ------------------------------------------------------------------
+      # 6. Build Tauri app with signing
+      #
+      #    TAURI_SIGNING_PRIVATE_KEY        — base64-encoded Ed25519 private key
+      #    TAURI_SIGNING_PRIVATE_KEY_PASSWORD — optional passphrase (can be empty)
+      #
+      #    Both secrets must be registered in the *source* repo
+      #    (abroadcrew02-spec/choco) Settings > Secrets > Actions.
+      #    See docs/release-setup.md for key generation instructions.
+      # ------------------------------------------------------------------
+      - name: Build Tauri app (signed)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build
+
+      # ------------------------------------------------------------------
+      # 7. Collect build artifacts
+      # ------------------------------------------------------------------
+      - name: Locate MSI installer
+        shell: bash
+        run: |
+          MSI_PATH=$(find src-tauri/target/release/bundle/msi -name "*.msi" | head -1)
+          SIG_PATH="${MSI_PATH}.sig"
+          echo "MSI_PATH=${MSI_PATH}" >> $GITHUB_ENV
+          echo "SIG_PATH=${SIG_PATH}" >> $GITHUB_ENV
+          echo "Found MSI: ${MSI_PATH}"
+
+      # ------------------------------------------------------------------
+      # 8. Generate latest.json
+      #
+      #    The URL must point to the *public mirror* repository release asset.
+      #    PLACEHOLDER: replace "abroadcrew02-spec/choco-releases" with the
+      #    actual org/repo name after creating the public mirror repository.
+      #    See docs/release-setup.md §"Public mirror repository".
+      # ------------------------------------------------------------------
+      - name: Generate latest.json
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          MSI_FILENAME=$(basename "${MSI_PATH}")
+          SIG_CONTENT=$(cat "${SIG_PATH}")
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # PLACEHOLDER: update the base URL below to match the actual
+          # public mirror repository after it is created.
+          BASE_URL="https://github.com/abroadcrew02-spec/choco-releases/releases/download/${TAG_NAME}"
+
+          cat > latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Choco ${VERSION}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${SIG_CONTENT}",
+                "url": "${BASE_URL}/${MSI_FILENAME}"
+              }
+            }
+          }
+          EOF
+          echo "Generated latest.json:"
+          cat latest.json
+
+      # ------------------------------------------------------------------
+      # 9. Upload artifacts to the public mirror repository
+      #
+      #    Strategy: use a PAT (RELEASES_REPO_PAT) that has write access
+      #    to the public mirror repository (abroadcrew02-spec/choco-releases).
+      #    The PAT must be stored as a secret in the source repo.
+      #
+      #    PLACEHOLDER: replace "abroadcrew02-spec/choco-releases" with the
+      #    actual public mirror repository name.
+      #    See docs/release-setup.md §"Public mirror repository".
+      # ------------------------------------------------------------------
+      - name: Create release in public mirror repository
+        uses: softprops/action-gh-release@v2
+        with:
+          # PLACEHOLDER: target repository — replace with actual public mirror repo
+          repository: abroadcrew02-spec/choco-releases
+          token: ${{ secrets.RELEASES_REPO_PAT }}
+          tag_name: ${{ github.ref_name }}
+          name: Choco ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            ${{ env.MSI_PATH }}
+            ${{ env.SIG_PATH }}
+            latest.json

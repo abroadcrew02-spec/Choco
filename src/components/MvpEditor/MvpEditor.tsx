@@ -3,8 +3,10 @@ import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useLayers } from "./hooks/useLayers";
+import { useUpdater } from "./hooks/useUpdater";
 import { ColorPicker } from "./components/ColorPicker";
 import { LayerPanel } from "./components/LayerPanel";
+import { UpdateModal } from "./components/UpdateModal";
 import {
   serializeProject,
   downloadProject,
@@ -445,6 +447,7 @@ export function MvpEditor() {
   const [showColorPicker, setShowColorPicker] = useState(false);
 
   const layers = useLayers();
+  const updater = useUpdater();
 
   // Brush stroke state
   const isBrushingRef = useRef(false);
@@ -1352,6 +1355,9 @@ export function MvpEditor() {
           onActiveLayerChange={layers.setActiveLayerId}
         />
       </div>
+
+      {/* Update modal */}
+      <UpdateModal updater={updater} />
 
       {/* Help modal */}
       {showHelp && (
