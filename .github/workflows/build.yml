@@ -1,0 +1,151 @@
+name: Build & CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly cargo audit on main
+    - cron: "0 2 * * 1"
+
+jobs:
+  # -------------------------------------------------------
+  # Rust security audit (ADR-0006)
+  # -------------------------------------------------------
+  cargo-audit:
+    name: Cargo Audit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # -------------------------------------------------------
+  # WASM unit tests
+  # -------------------------------------------------------
+  test-wasm:
+    name: WASM Unit Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run WASM crate tests (native)
+        run: cargo test -p choco-wasm
+
+  # -------------------------------------------------------
+  # Tauri Core unit tests
+  # -------------------------------------------------------
+  test-tauri:
+    name: Tauri Core Unit Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-tauri-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run Tauri Core tests
+        run: cargo test -p choco
+
+  # -------------------------------------------------------
+  # TypeScript lint & unit tests
+  # -------------------------------------------------------
+  test-frontend:
+    name: Frontend Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+      - name: Cache pnpm
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+      - name: Run tests
+        run: pnpm test
+
+  # -------------------------------------------------------
+  # Tauri Windows build
+  # -------------------------------------------------------
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    needs: [cargo-audit, test-wasm, test-tauri, test-frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+      - name: Cache pnpm
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build WASM
+        run: pnpm wasm:build
+      - name: Build Tauri app
+        run: pnpm tauri build
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: choco-windows-installer
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: warn

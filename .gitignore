@@ -16,3 +16,18 @@ Desktop.ini
 # Env
 .env
 .env.local
+
+# Node
+node_modules/
+
+# Rust / Cargo
+target/
+
+# WASM build output
+crates/choco-wasm/pkg/
+
+# Vite build output
+dist/
+
+# Tauri generated files
+src-tauri/gen/

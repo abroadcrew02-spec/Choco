@@ -1,0 +1,45 @@
+{
+  "name": "choco",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts,.tsx",
+    "wasm:build": "wasm-pack build crates/choco-wasm --target web --out-dir ../../crates/choco-wasm/pkg",
+    "wasm:build:dev": "wasm-pack build crates/choco-wasm --target web --dev --out-dir ../../crates/choco-wasm/pkg"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-updater": "^2",
+    "comlink": "^4.4.1",
+    "konva": "^9.3.16",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-konva": "^18.2.10",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.0.0",
+    "typescript": "^5.6.2",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8",
+    "jsdom": "^25.0.1",
+    "@vitest/coverage-v8": "^2.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}
