@@ -16,6 +16,60 @@ interface MvpEditorState {
 
 const DEFAULT_COLOR = "#ff0000";
 const DEFAULT_TOLERANCE = 32;
+const SVG_TARGET_LONG_EDGE = 2048;
+
+/**
+ * Rewrites an SVG string so that its rendered width/height will produce a
+ * rasterized bitmap with a long edge of SVG_TARGET_LONG_EDGE pixels.
+ * Returns the rewritten SVG text plus the target width and height.
+ */
+function rewriteSvgForHighResRasterize(svgText: string): {
+  text: string;
+  width: number;
+  height: number;
+} {
+  const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+  const svg = doc.documentElement;
+
+  let aspectW = 1;
+  let aspectH = 1;
+
+  const viewBox = svg.getAttribute("viewBox");
+  if (viewBox) {
+    const parts = viewBox.trim().split(/[\s,]+/);
+    if (parts.length === 4) {
+      const vbW = parseFloat(parts[2]);
+      const vbH = parseFloat(parts[3]);
+      if (vbW > 0 && vbH > 0) {
+        aspectW = vbW;
+        aspectH = vbH;
+      }
+    }
+  } else {
+    const attrW = parseFloat(svg.getAttribute("width") ?? "0");
+    const attrH = parseFloat(svg.getAttribute("height") ?? "0");
+    if (attrW > 0 && attrH > 0) {
+      aspectW = attrW;
+      aspectH = attrH;
+    }
+  }
+
+  let targetW: number;
+  let targetH: number;
+  if (aspectW >= aspectH) {
+    targetW = SVG_TARGET_LONG_EDGE;
+    targetH = Math.round((aspectH / aspectW) * SVG_TARGET_LONG_EDGE);
+  } else {
+    targetH = SVG_TARGET_LONG_EDGE;
+    targetW = Math.round((aspectW / aspectH) * SVG_TARGET_LONG_EDGE);
+  }
+
+  svg.setAttribute("width", String(targetW));
+  svg.setAttribute("height", String(targetH));
+
+  const serialized = new XMLSerializer().serializeToString(doc);
+  return { text: serialized, width: targetW, height: targetH };
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -250,6 +304,54 @@ export function MvpEditor() {
   }, [state]);
 
   const loadImageFromFile = useCallback((file: File) => {
+    const isSvg =
+      file.type === "image/svg+xml" ||
+      file.name.toLowerCase().endsWith(".svg");
+
+    if (isSvg) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const svgText = reader.result as string;
+        let rewritten: ReturnType<typeof rewriteSvgForHighResRasterize>;
+        try {
+          rewritten = rewriteSvgForHighResRasterize(svgText);
+        } catch {
+          setStatus("SVGの解析に失敗しました");
+          return;
+        }
+        const { text, width: w, height: h } = rewritten;
+        const blob = new Blob([text], { type: "image/svg+xml" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          const offscreen = document.createElement("canvas");
+          offscreen.width = w;
+          offscreen.height = h;
+          const ctx = offscreen.getContext("2d")!;
+          ctx.drawImage(img, 0, 0, w, h);
+          const imageData = ctx.getImageData(0, 0, w, h);
+          URL.revokeObjectURL(url);
+          setState({
+            imageData,
+            naturalWidth: w,
+            naturalHeight: h,
+            regions: [],
+          });
+          setStatus(`画像読み込み完了: ${w}x${h}`);
+        };
+        img.onerror = () => {
+          setStatus("画像の読み込みに失敗しました");
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      };
+      reader.onerror = () => {
+        setStatus("ファイルの読み込みに失敗しました");
+      };
+      reader.readAsText(file);
+      return;
+    }
+
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
