@@ -31,3 +31,6 @@ dist/
 
 # Tauri generated files
 src-tauri/gen/
+
+# Local release artifacts (built EXE / installers)
+release/
