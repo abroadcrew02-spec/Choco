@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { ColorPicker } from "./components/ColorPicker";
 
 interface PaintRegion {
   id: string;
@@ -17,9 +18,13 @@ interface MvpEditorState {
   regions: PaintRegion[];
 }
 
+type EditorMode = "color" | "transparent" | "brush";
+
 const DEFAULT_COLOR = "#ff0000";
 const DEFAULT_TOLERANCE = 32;
+const DEFAULT_BRUSH_SIZE = 20;
 const SVG_TARGET_LONG_EDGE = 2048;
+const MAX_RECENT_COLORS = 8;
 
 /**
  * Rewrites an SVG string so that its rendered width/height will produce a
@@ -144,6 +149,67 @@ function floodFillSelect(
   }
 
   return result;
+}
+
+/**
+ * Returns pixels within a circle of given radius centered at (cx, cy),
+ * clamped to image bounds. Uses a Set<number> for deduplication internally
+ * and returns as {x,y}[].
+ */
+function getBrushPixels(
+  cx: number,
+  cy: number,
+  radius: number,
+  width: number,
+  height: number
+): { x: number; y: number }[] {
+  const result: { x: number; y: number }[] = [];
+  const r = Math.ceil(radius);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy <= radius * radius) {
+        const px = cx + dx;
+        const py = cy + dy;
+        if (px >= 0 && px < width && py >= 0 && py < height) {
+          result.push({ x: px, y: py });
+        }
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Merges new pixels into an existing region's pixel array,
+ * deduplicating via a Set<number> encoding (y * width + x).
+ */
+function mergePixels(
+  existing: { x: number; y: number }[],
+  toAdd: { x: number; y: number }[],
+  imageWidth: number
+): { x: number; y: number }[] {
+  const seen = new Set<number>(existing.map((p) => p.y * imageWidth + p.x));
+  const merged = [...existing];
+  for (const p of toAdd) {
+    const key = p.y * imageWidth + p.x;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(p);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Removes pixels from an existing region's pixel array.
+ */
+function subtractPixels(
+  existing: { x: number; y: number }[],
+  toRemove: { x: number; y: number }[],
+  imageWidth: number
+): { x: number; y: number }[] {
+  const removeSet = new Set<number>(toRemove.map((p) => p.y * imageWidth + p.x));
+  return existing.filter((p) => !removeSet.has(p.y * imageWidth + p.x));
 }
 
 /**
@@ -273,7 +339,8 @@ ${colorRegionElements}
 }
 
 const SHORTCUT_HELP: { key: string; description: string }[] = [
-  { key: "B", description: "色変更モード" },
+  { key: "B", description: "ブラシモード" },
+  { key: "G", description: "バケツ塗りモード" },
   { key: "E", description: "透過モード" },
   { key: "Ctrl+Z", description: "元に戻す (Undo)" },
   { key: "Ctrl+Y / Ctrl+Shift+Z", description: "やり直し (Redo)" },
@@ -281,11 +348,19 @@ const SHORTCUT_HELP: { key: string; description: string }[] = [
   { key: "Ctrl+1", description: "100% 表示" },
   { key: "Space + ドラッグ", description: "パン（移動）" },
   { key: "ホイール", description: "ズームイン/アウト" },
-  { key: "Esc", description: "予約 (将来使用)" },
+  { key: "ブラシ中 Shift", description: "直近 region に追加" },
+  { key: "ブラシ中 Alt", description: "直近 region から削除" },
 ];
+
+const MODE_LABEL: Record<EditorMode, string> = {
+  color: "バケツ塗り",
+  transparent: "透過",
+  brush: "ブラシ",
+};
 
 export function MvpEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -297,12 +372,27 @@ export function MvpEditor() {
 
   const regionHistory = useUndoRedo<PaintRegion[]>([]);
 
-  const [mode, setMode] = useState<"color" | "transparent">("color");
+  const [mode, setMode] = useState<EditorMode>("color");
   const [selectedColor, setSelectedColor] = useState(DEFAULT_COLOR);
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
+  const [brushSize, setBrushSize] = useState(DEFAULT_BRUSH_SIZE);
   const [status, setStatus] = useState("画像を読み込んでください");
   const [spacePressed, setSpacePressed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+
+  // Brush stroke state
+  const isBrushingRef = useRef(false);
+  // Pixels accumulated in the current stroke (using Set<number> for deduplication)
+  const strokePixelSetRef = useRef<Set<number>>(new Set());
+  // The region index being modified (for mask paint Shift/Alt), -1 = new stroke
+  const maskTargetIndexRef = useRef<number>(-1);
+  // Whether current stroke is subtract (Alt) or add (Shift/default)
+  const maskSubtractRef = useRef<boolean>(false);
+
+  // Brush cursor overlay state
+  const [brushCursorPos, setBrushCursorPos] = useState<{ cx: number; cy: number } | null>(null);
 
   const zoom = useZoomPan(spacePressed);
 
@@ -344,6 +434,14 @@ export function MvpEditor() {
 
   const regions = regionHistory.current;
 
+  // Add color to recent colors list (dedup, max 8, newest first)
+  const addRecentColor = useCallback((hex: string) => {
+    setRecentColors((prev) => {
+      const filtered = prev.filter((c) => c !== hex);
+      return [hex, ...filtered].slice(0, MAX_RECENT_COLORS);
+    });
+  }, []);
+
   // Redraw canvas whenever regions or base image changes
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -353,6 +451,42 @@ export function MvpEditor() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.putImageData(composited, 0, 0);
   }, [baseState, regions]);
+
+  // Draw brush cursor on overlay canvas
+  useEffect(() => {
+    const overlay = overlayCanvasRef.current;
+    if (!overlay) return;
+    const ctx = overlay.getContext("2d")!;
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    if (mode === "brush" && brushCursorPos) {
+      const { cx, cy } = brushCursorPos;
+      ctx.beginPath();
+      ctx.arc(cx, cy, brushSize, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,255,255,0.8)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, brushSize, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(0,0,0,0.5)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }, [mode, brushCursorPos, brushSize]);
+
+  const getCanvasCoords = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>): { x: number; y: number } | null => {
+      const canvas = canvasRef.current;
+      if (!canvas || !baseState.imageData) return null;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = baseState.naturalWidth / rect.width;
+      const scaleY = baseState.naturalHeight / rect.height;
+      const x = Math.floor((e.clientX - rect.left) * scaleX);
+      const y = Math.floor((e.clientY - rect.top) * scaleY);
+      if (x < 0 || x >= baseState.naturalWidth || y < 0 || y >= baseState.naturalHeight) return null;
+      return { x, y };
+    },
+    [baseState]
+  );
 
   const loadImageFromFile = useCallback((file: File) => {
     const isSvg =
@@ -441,19 +575,136 @@ export function MvpEditor() {
     [loadImageFromFile]
   );
 
+  // ---- Brush event handlers ----
+
+  const handleBrushMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (spacePressed || mode !== "brush" || !baseState.imageData) return;
+      e.preventDefault();
+      const coords = getCanvasCoords(e);
+      if (!coords) return;
+
+      isBrushingRef.current = true;
+      strokePixelSetRef.current = new Set<number>();
+      maskSubtractRef.current = e.altKey;
+
+      // For mask paint: if Shift or Alt, target the last region
+      if ((e.shiftKey || e.altKey) && regions.length > 0) {
+        maskTargetIndexRef.current = regions.length - 1;
+      } else {
+        maskTargetIndexRef.current = -1;
+      }
+
+      // Paint initial brush stamp
+      const newPixels = getBrushPixels(
+        coords.x,
+        coords.y,
+        brushSize / 2,
+        baseState.naturalWidth,
+        baseState.naturalHeight
+      );
+      newPixels.forEach((p) => {
+        strokePixelSetRef.current.add(p.y * baseState.naturalWidth + p.x);
+      });
+    },
+    [spacePressed, mode, baseState, brushSize, regions, getCanvasCoords]
+  );
+
+  const handleBrushMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (mode !== "brush" || !baseState.imageData) return;
+
+      const coords = getCanvasCoords(e);
+
+      // Update brush cursor regardless of whether we're painting
+      if (coords) {
+        setBrushCursorPos({ cx: coords.x, cy: coords.y });
+      } else {
+        setBrushCursorPos(null);
+      }
+
+      if (!isBrushingRef.current || !coords) return;
+
+      const newPixels = getBrushPixels(
+        coords.x,
+        coords.y,
+        brushSize / 2,
+        baseState.naturalWidth,
+        baseState.naturalHeight
+      );
+      newPixels.forEach((p) => {
+        strokePixelSetRef.current.add(p.y * baseState.naturalWidth + p.x);
+      });
+    },
+    [mode, baseState, brushSize, getCanvasCoords]
+  );
+
+  const commitBrushStroke = useCallback(() => {
+    if (!isBrushingRef.current || !baseState.imageData) return;
+    isBrushingRef.current = false;
+
+    const pixelSet = strokePixelSetRef.current;
+    if (pixelSet.size === 0) return;
+
+    const strokePixels: { x: number; y: number }[] = [];
+    for (const key of pixelSet) {
+      strokePixels.push({ x: key % baseState.naturalWidth, y: Math.floor(key / baseState.naturalWidth) });
+    }
+
+    const targetIdx = maskTargetIndexRef.current;
+    const isSubtract = maskSubtractRef.current;
+
+    if (targetIdx >= 0 && targetIdx < regions.length) {
+      // Mask paint: modify the target region
+      const target = regions[targetIdx];
+      const updatedPixels = isSubtract
+        ? subtractPixels(target.pixels, strokePixels, baseState.naturalWidth)
+        : mergePixels(target.pixels, strokePixels, baseState.naturalWidth);
+
+      const updatedRegion: PaintRegion = { ...target, pixels: updatedPixels };
+      const nextRegions = regions.map((r, i) => (i === targetIdx ? updatedRegion : r));
+      regionHistory.push(nextRegions);
+      setStatus(
+        isSubtract
+          ? `マスク削除: ${strokePixels.length}px`
+          : `マスク追加: ${strokePixels.length}px`
+      );
+    } else {
+      // New brush stroke region
+      const newRegion: PaintRegion = {
+        id: `region-${Date.now()}`,
+        pixels: strokePixels,
+        color: selectedColor,
+        transparent: false,
+      };
+      regionHistory.push([...regions, newRegion]);
+      setStatus(`ブラシ: ${strokePixels.length}px → ${selectedColor}`);
+    }
+
+    strokePixelSetRef.current = new Set();
+    maskTargetIndexRef.current = -1;
+  }, [baseState, regions, selectedColor, regionHistory]);
+
+  const handleBrushMouseUp = useCallback(() => {
+    commitBrushStroke();
+  }, [commitBrushStroke]);
+
+  const handleBrushMouseLeave = useCallback(() => {
+    setBrushCursorPos(null);
+    commitBrushStroke();
+  }, [commitBrushStroke]);
+
+  // ---- Bucket / transparent click handler ----
+
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (spacePressed) return;
+      if (spacePressed || mode === "brush") return;
       const canvas = canvasRef.current;
       if (!canvas || !baseState.imageData) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = baseState.naturalWidth / rect.width;
-      const scaleY = baseState.naturalHeight / rect.height;
-      const x = Math.floor((e.clientX - rect.left) * scaleX);
-      const y = Math.floor((e.clientY - rect.top) * scaleY);
-
-      if (x < 0 || x >= baseState.naturalWidth || y < 0 || y >= baseState.naturalHeight) return;
+      const coords = getCanvasCoords(e);
+      if (!coords) return;
+      const { x, y } = coords;
 
       const pixels = floodFillSelect(baseState.imageData, x, y, tolerance);
       if (pixels.length === 0) return;
@@ -470,10 +721,10 @@ export function MvpEditor() {
       setStatus(
         mode === "transparent"
           ? `透過: ${pixels.length}px 選択`
-          : `色変更: ${pixels.length}px → ${selectedColor}`
+          : `バケツ塗り: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords]
   );
 
   const handleReset = useCallback(() => {
@@ -517,9 +768,11 @@ export function MvpEditor() {
     ? zoom.isPanning
       ? "grabbing"
       : "grab"
-    : baseState.imageData
-      ? "crosshair"
-      : "default";
+    : mode === "brush"
+      ? "none"
+      : baseState.imageData
+        ? "crosshair"
+        : "default";
 
   const zoomPercent = Math.round(zoom.scale * 100);
 
@@ -565,15 +818,23 @@ export function MvpEditor() {
 
         <div style={dividerStyle} />
 
-        {/* Mode */}
+        {/* Mode buttons */}
         <label style={labelStyle}>モード:</label>
+        <button
+          type="button"
+          onClick={() => setMode("brush")}
+          style={{ ...btnStyle, background: mode === "brush" ? "#0066cc" : "#444" }}
+          title="ブラシモード (B)"
+        >
+          ブラシ
+        </button>
         <button
           type="button"
           onClick={() => setMode("color")}
           style={{ ...btnStyle, background: mode === "color" ? "#0066cc" : "#444" }}
-          title="色変更モード (B)"
+          title="バケツ塗りモード (G)"
         >
-          色変更
+          バケツ
         </button>
         <button
           type="button"
@@ -584,29 +845,88 @@ export function MvpEditor() {
           透過
         </button>
 
-        {/* Color picker */}
-        {mode === "color" && (
+        {/* Brush size (visible in brush mode) */}
+        {mode === "brush" && (
           <>
-            <label style={labelStyle}>色:</label>
+            <label style={labelStyle}>ブラシ: {brushSize}px</label>
             <input
-              type="color"
-              value={selectedColor}
-              onChange={(e) => setSelectedColor(e.target.value)}
-              style={{ width: 36, height: 28, cursor: "pointer", border: "none", borderRadius: 4 }}
+              type="range"
+              min={1}
+              max={100}
+              value={brushSize}
+              onChange={(e) => setBrushSize(Number(e.target.value))}
+              style={{ width: 80 }}
             />
           </>
         )}
 
-        {/* Tolerance */}
-        <label style={labelStyle}>許容値: {tolerance}</label>
-        <input
-          type="range"
-          min={0}
-          max={128}
-          value={tolerance}
-          onChange={(e) => setTolerance(Number(e.target.value))}
-          style={{ width: 80 }}
-        />
+        {/* Color picker area */}
+        {(mode === "color" || mode === "brush") && (
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setShowColorPicker((v) => !v)}
+              style={{
+                ...btnStyle,
+                padding: 0,
+                width: 32,
+                height: 28,
+                background: selectedColor,
+                border: "2px solid #888",
+              }}
+              title="色を選択"
+            />
+            {showColorPicker && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 34,
+                  left: 0,
+                  zIndex: 100,
+                  background: "#222",
+                  border: "1px solid #555",
+                  borderRadius: 6,
+                  padding: 10,
+                  minWidth: 240,
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <ColorPicker
+                  value={selectedColor}
+                  onChange={(hex) => {
+                    setSelectedColor(hex);
+                  }}
+                  recentColors={recentColors}
+                  onRecentColorAdd={addRecentColor}
+                />
+                <div style={{ textAlign: "right", marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowColorPicker(false)}
+                    style={{ ...btnStyle, fontSize: 11, padding: "2px 8px" }}
+                  >
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tolerance (bucket/transparent mode) */}
+        {mode !== "brush" && (
+          <>
+            <label style={labelStyle}>許容値: {tolerance}</label>
+            <input
+              type="range"
+              min={0}
+              max={128}
+              value={tolerance}
+              onChange={(e) => setTolerance(Number(e.target.value))}
+              style={{ width: 80 }}
+            />
+          </>
+        )}
 
         <div style={dividerStyle} />
 
@@ -720,6 +1040,9 @@ export function MvpEditor() {
           backgroundSize: "16px 16px",
           backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
         }}
+        onClick={() => {
+          if (showColorPicker) setShowColorPicker(false);
+        }}
       >
         {!baseState.imageData ? (
           <div
@@ -749,11 +1072,50 @@ export function MvpEditor() {
               width={baseState.naturalWidth}
               height={baseState.naturalHeight}
               onClick={handleCanvasClick}
+              onMouseDown={handleBrushMouseDown}
+              onMouseMove={handleBrushMouseMove}
+              onMouseUp={handleBrushMouseUp}
+              onMouseLeave={handleBrushMouseLeave}
               style={{
                 cursor: canvasCursor,
                 display: "block",
+                position: "absolute",
+                top: 0,
+                left: 0,
               }}
             />
+            {/* Brush cursor overlay */}
+            <canvas
+              ref={overlayCanvasRef}
+              width={baseState.naturalWidth}
+              height={baseState.naturalHeight}
+              style={{
+                display: "block",
+                position: "absolute",
+                top: 0,
+                left: 0,
+                pointerEvents: "none",
+              }}
+            />
+          </div>
+        )}
+
+        {/* Status bar */}
+        {baseState.imageData && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 8,
+              left: 12,
+              fontSize: 11,
+              color: "#aaa",
+              background: "rgba(0,0,0,0.5)",
+              padding: "2px 8px",
+              borderRadius: 3,
+              pointerEvents: "none",
+            }}
+          >
+            ツール: {MODE_LABEL[mode]}
           </div>
         )}
 

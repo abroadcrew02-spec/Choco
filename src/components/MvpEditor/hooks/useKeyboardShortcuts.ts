@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-type Mode = "color" | "transparent";
+type Mode = "color" | "transparent" | "brush";
 
 interface UseKeyboardShortcutsOptions {
   onUndo: () => void;
@@ -58,6 +58,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
         return;
       }
       if (e.key === "b" && !ctrl) {
+        onModeChange("brush");
+        return;
+      }
+      if (e.key === "g" && !ctrl) {
         onModeChange("color");
         return;
       }
