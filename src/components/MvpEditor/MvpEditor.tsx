@@ -21,6 +21,30 @@ interface BaseState {
 
 type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all";
 
+// Brand swatches stored in LocalStorage
+const BRAND_SWATCHES_KEY = "choco_brand_swatches";
+const BRAND_SWATCHES_MAX = 8;
+
+function loadBrandSwatches(): string[] {
+  try {
+    const raw = localStorage.getItem(BRAND_SWATCHES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((v) => typeof v === "string");
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBrandSwatches(swatches: string[]): void {
+  try {
+    localStorage.setItem(BRAND_SWATCHES_KEY, JSON.stringify(swatches));
+  } catch {
+    // ignore quota errors
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -59,12 +83,20 @@ function colorDistance(
 /**
  * Flood fill selection. Returns the set of pixel coordinates reachable from
  * (startX, startY) within the given color tolerance.
+ *
+ * connectivity: 4 (default) = cardinal neighbors only;
+ *               8 = include diagonal neighbors (B-3).
+ * antialiasMode: "normal" (default) = strict color distance check;
+ *                "antialias" = also include pixels with near-matching hue
+ *                              and alpha < 255 (B-2 boundary inclusion).
  */
 export function floodFillSelect(
   imageData: ImageData,
   startX: number,
   startY: number,
-  tolerance: number
+  tolerance: number,
+  antialiasMode: "normal" | "antialias" = "normal",
+  connectivity: 4 | 8 = 4
 ): { x: number; y: number }[] {
   const { width, height, data } = imageData;
   const startIdx = (startY * width + startX) * 4;
@@ -77,6 +109,19 @@ export function floodFillSelect(
   const stack: number[] = [startY * width + startX];
   visited[startY * width + startX] = 1;
 
+  // Neighbor offsets for 4-neighbor vs 8-neighbor connectivity
+  const neighbors4 = [
+    { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+    { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+  ];
+  const neighbors8 = [
+    { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+    { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+    { dx: -1, dy: -1 }, { dx: 1, dy: -1 },
+    { dx: -1, dy: 1 }, { dx: 1, dy: 1 },
+  ];
+  const neighborOffsets = connectivity === 8 ? neighbors8 : neighbors4;
+
   while (stack.length > 0) {
     const idx = stack.pop()!;
     const x = idx % width;
@@ -86,19 +131,23 @@ export function floodFillSelect(
     const r = data[pixelIdx];
     const g = data[pixelIdx + 1];
     const b = data[pixelIdx + 2];
+    const a = data[pixelIdx + 3];
 
-    if (colorDistance(r, g, b, startR, startG, startB) > tolerance) continue;
+    const dist = colorDistance(r, g, b, startR, startG, startB);
+
+    // Normal check: strict color distance
+    const matchesNormal = dist <= tolerance;
+    // Antialias check: near-matching hue AND semi-transparent (boundary pixel)
+    const matchesAntialias =
+      antialiasMode === "antialias" && dist <= tolerance * 2 && a < 255;
+
+    if (!matchesNormal && !matchesAntialias) continue;
 
     result.push({ x, y });
 
-    const neighbors = [
-      { nx: x - 1, ny: y },
-      { nx: x + 1, ny: y },
-      { nx: x, ny: y - 1 },
-      { nx: x, ny: y + 1 },
-    ];
-
-    for (const { nx, ny } of neighbors) {
+    for (const { dx, dy } of neighborOffsets) {
+      const nx = x + dx;
+      const ny = y + dy;
       if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
       const nIdx = ny * width + nx;
       if (visited[nIdx]) continue;
@@ -245,33 +294,124 @@ function imageDataToPngDataUrl(imageData: ImageData, scale = 1): string {
 }
 
 /**
- * Renders a single non-transparent paint region as a PNG data URL.
+ * Builds an SVG path string (d attribute) from a set of pixel coordinates
+ * using marching squares boundary tracing.
+ *
+ * Each connected boundary is emitted as a sub-path ("M ... Z").
+ * Holes are represented as additional sub-paths with opposite winding (SVG
+ * even-odd fill rule handles cutouts automatically).
+ *
+ * The algorithm pads each pixel by one unit so adjacent pixels merge into
+ * filled rectangles rather than individual 1×1 squares.
  */
-function regionToPngDataUrl(
-  region: PaintRegion,
-  width: number,
-  height: number
-): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d")!;
-  const imageData = ctx.createImageData(width, height);
-  const [r, g, b] = hexToRgb(region.color);
-  for (const { x, y } of region.pixels) {
-    const idx = (y * width + x) * 4;
-    imageData.data[idx] = r;
-    imageData.data[idx + 1] = g;
-    imageData.data[idx + 2] = b;
-    imageData.data[idx + 3] = 255;
+export function marchingSquaresPath(pixels: { x: number; y: number }[]): string {
+  if (pixels.length === 0) return "";
+
+  // Build a fast lookup set using (y * maxPossibleWidth + x) key
+  // We use a string-based Set for simplicity and correctness across large images
+  const pixelSet = new Set<string>(pixels.map((p) => `${p.x},${p.y}`));
+
+  function has(x: number, y: number): boolean {
+    return pixelSet.has(`${x},${y}`);
   }
-  ctx.putImageData(imageData, 0, 0);
-  return canvas.toDataURL("image/png");
+
+  // Marching squares: collect all horizontal and vertical edge segments
+  // An edge exists where the inside/outside status changes between adjacent cells.
+  // We collect axis-aligned unit edges, then chain them into closed loops.
+
+  // Horizontal edges: top edge of pixel (x,y) if (x,y) is inside and (x,y-1) is outside,
+  //                   bottom edge of pixel (x,y) if (x,y) is inside and (x,y+1) is outside.
+  // Vertical edges:   left edge of pixel (x,y) if (x,y) is inside and (x-1,y) is outside,
+  //                   right edge of pixel (x,y) if (x,y) is inside and (x+1,y) is outside.
+
+  // Edge representation: each edge is from point A to point B (integer grid corners).
+  // We store edges in a map: startPoint -> [endPoint, ...]
+
+  // Grid corners are at integer coordinates. Pixel (x,y) occupies the square
+  // from corner (x,y) to corner (x+1,y+1).
+
+  interface Point { x: number; y: number }
+  type EdgeMap = Map<string, Point[]>;
+
+  const edgeMap: EdgeMap = new Map();
+
+  function addEdge(ax: number, ay: number, bx: number, by: number): void {
+    const key = `${ax},${ay}`;
+    const existing = edgeMap.get(key);
+    if (existing) {
+      existing.push({ x: bx, y: by });
+    } else {
+      edgeMap.set(key, [{ x: bx, y: by }]);
+    }
+  }
+
+  for (const { x, y } of pixels) {
+    // Top edge: from (x,y) to (x+1,y)  — exists when (x,y-1) is outside
+    if (!has(x, y - 1)) addEdge(x, y, x + 1, y);
+    // Bottom edge: from (x+1,y+1) to (x,y+1) — exists when (x,y+1) is outside
+    if (!has(x, y + 1)) addEdge(x + 1, y + 1, x, y + 1);
+    // Left edge: from (x,y+1) to (x,y) — exists when (x-1,y) is outside
+    if (!has(x - 1, y)) addEdge(x, y + 1, x, y);
+    // Right edge: from (x+1,y) to (x+1,y+1) — exists when (x+1,y) is outside
+    if (!has(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1);
+  }
+
+  // Trace closed loops from the edge map
+  const pathParts: string[] = [];
+  const visitedEdgeKeys = new Set<string>();
+
+  for (const [startKey, _] of edgeMap) {
+    if (visitedEdgeKeys.has(startKey)) continue;
+
+    // Start a new loop from this point
+    const firstPtParts = startKey.split(",");
+    const firstPt: Point = { x: Number(firstPtParts[0]), y: Number(firstPtParts[1]) };
+
+    const loopPoints: Point[] = [firstPt];
+    let current = firstPt;
+    let loopClosed = false;
+
+    for (let step = 0; step < edgeMap.size + 4; step++) {
+      const key = `${current.x},${current.y}`;
+      const nexts = edgeMap.get(key);
+      if (!nexts || nexts.length === 0) break;
+
+      const next = nexts[0];
+
+      // Remove the used edge
+      nexts.splice(0, 1);
+      if (nexts.length === 0) edgeMap.delete(key);
+
+      visitedEdgeKeys.add(key);
+
+      if (next.x === firstPt.x && next.y === firstPt.y) {
+        loopClosed = true;
+        break;
+      }
+
+      loopPoints.push(next);
+      current = next;
+    }
+
+    if (loopPoints.length >= 2) {
+      const d = loopPoints
+        .map((p, i) => `${i === 0 ? "M" : "L"}${p.x} ${p.y}`)
+        .join(" ");
+      pathParts.push(loopClosed ? d + " Z" : d);
+    }
+  }
+
+  return pathParts.join(" ");
 }
 
 /**
- * Builds an SVG with pixel-accurate color regions, using independent PNG
- * <image> elements per region (pixel-complete, no opacity compositing).
+ * Builds an SVG with pixel-accurate color regions, using vector <path>
+ * elements for color regions (via marching squares boundary tracing) and
+ * a <mask> for transparent regions.
+ *
+ * The base image is embedded as a PNG <image>. Color regions are rendered
+ * as filled <path> elements with fill-rule="evenodd" to handle holes.
+ * Transparent regions cut holes via an SVG <mask>.
  */
 export function buildSvg(
   imageData: ImageData,
@@ -308,9 +448,11 @@ ${maskRects}
   const colorElements = regions
     .filter((r) => !r.transparent && r.pixels.length > 0)
     .map((region) => {
-      const pngUrl = regionToPngDataUrl(region, width, height);
-      return `  <image href="${pngUrl}" width="${width}" height="${height}" />`;
+      const d = marchingSquaresPath(region.pixels);
+      if (!d) return "";
+      return `  <path d="${d}" fill="${region.color}" fill-rule="evenodd" />`;
     })
+    .filter(Boolean)
     .join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -319,6 +461,31 @@ ${maskSection}
 ${imageElement}
 ${colorElements}
 </svg>`;
+}
+
+/**
+ * Applies "transparent white" to all pixels in imageData whose color
+ * is within tolerance of pure white (#ffffff). Returns a new ImageData.
+ * Uses the same color-distance metric as floodFillSelect.
+ */
+export function makeWhiteTransparent(
+  imageData: ImageData,
+  tolerance = 5
+): { pixels: { x: number; y: number }[] } {
+  const { width, height, data } = imageData;
+  const result: { x: number; y: number }[] = [];
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      if (colorDistance(r, g, b, 255, 255, 255) <= tolerance) {
+        result.push({ x, y });
+      }
+    }
+  }
+  return { pixels: result };
 }
 
 /**
@@ -411,6 +578,14 @@ export function MvpEditor() {
   const [pngScale, setPngScale] = useState<1 | 2 | 4>(1);
   const [showMapping, setShowMapping] = useState(true);
   const [showPalette, setShowPalette] = useState(true);
+  // B-2: brand color swatches
+  const [brandSwatches, setBrandSwatches] = useState<string[]>(loadBrandSwatches);
+  // B-2: antialias boundary inclusion
+  const [includeAntialias, setIncludeAntialias] = useState(false);
+  // B-3: connectivity mode (4-neighbor vs 8-neighbor)
+  const [connectivity, setConnectivity] = useState<4 | 8>(4);
+  // B-3: before/after comparison mode (show base without regions)
+  const [comparing, setComparing] = useState(false);
 
   const zoom = useZoomPan(spacePressed);
 
@@ -450,6 +625,12 @@ export function MvpEditor() {
         }
         return;
       }
+      // Ctrl+V: paste image from clipboard (B-1)
+      if (e.ctrlKey && e.key === "v") {
+        e.preventDefault();
+        handleClipboardPaste();
+        return;
+      }
       // I = eyedropper
       if (!e.ctrlKey && !e.altKey && e.key === "i") {
         setMode("eyedropper");
@@ -474,6 +655,7 @@ export function MvpEditor() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regionHistory, baseState.naturalWidth, baseState.naturalHeight, zoom]);
 
   // ---------------------------------------------------------------------------
@@ -484,10 +666,15 @@ export function MvpEditor() {
     const canvas = canvasRef.current;
     if (!canvas || !baseState.imageData) return;
     const ctx = canvas.getContext("2d")!;
-    const composited = compositeRegions(baseState.imageData, regions);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.putImageData(composited, 0, 0);
-  }, [baseState, regions]);
+    if (comparing) {
+      // B-3: before/after comparison — show raw base image without regions
+      ctx.putImageData(baseState.imageData, 0, 0);
+    } else {
+      const composited = compositeRegions(baseState.imageData, regions);
+      ctx.putImageData(composited, 0, 0);
+    }
+  }, [baseState, regions, comparing]);
 
   // ---------------------------------------------------------------------------
   // Image loading
@@ -526,6 +713,11 @@ export function MvpEditor() {
             regionHistory.reset([]);
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`画像読み込み完了: ${w}x${h}`);
+            // B-1: auto-fit on load
+            requestAnimationFrame(() => {
+              const container = containerRef.current;
+              if (container) zoom.fitToContainer(container.clientWidth, container.clientHeight, w, h);
+            });
           };
           img.onerror = () => {
             setStatus("SVG画像の読み込みに失敗しました");
@@ -554,6 +746,11 @@ export function MvpEditor() {
         regionHistory.reset([]);
         setPalette(extractPaletteColors(imageData, 8));
         setStatus(`画像読み込み完了: ${w}x${h}`);
+        // B-1: auto-fit on load
+        requestAnimationFrame(() => {
+          const container = containerRef.current;
+          if (container) zoom.fitToContainer(container.clientWidth, container.clientHeight, w, h);
+        });
       };
       img.onerror = () => {
         setStatus("画像の読み込みに失敗しました");
@@ -561,7 +758,7 @@ export function MvpEditor() {
       };
       img.src = url;
     },
-    [regionHistory]
+    [regionHistory, zoom]
   );
 
   // C-2 fix: accept by MIME type OR file extension fallback
@@ -668,8 +865,12 @@ export function MvpEditor() {
         return;
       }
 
-      // Color / transparent mode: flood fill
-      const pixels = floodFillSelect(baseState.imageData, x, y, tolerance);
+      // Color / transparent mode: flood fill (with optional 8-neighbor connectivity)
+      const pixels = floodFillSelect(
+        baseState.imageData, x, y, tolerance,
+        includeAntialias ? "antialias" : "normal",
+        connectivity
+      );
       if (pixels.length === 0) return;
 
       const newRegion: PaintRegion = {
@@ -686,7 +887,7 @@ export function MvpEditor() {
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity]
   );
 
   // ---------------------------------------------------------------------------
@@ -701,6 +902,97 @@ export function MvpEditor() {
     },
     [regions, regionHistory]
   );
+
+  // ---------------------------------------------------------------------------
+  // B-1: Clipboard paste (Ctrl+V)
+  // ---------------------------------------------------------------------------
+
+  const handleClipboardPaste = useCallback(() => {
+    if (!navigator.clipboard?.read) {
+      setStatus("クリップボードAPIが利用できません");
+      return;
+    }
+    navigator.clipboard.read().then((items) => {
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith("image/"));
+        if (!imageType) continue;
+        item.getType(imageType).then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => {
+            const w = img.naturalWidth;
+            const h = img.naturalHeight;
+            const offscreen = document.createElement("canvas");
+            offscreen.width = w;
+            offscreen.height = h;
+            const ctx = offscreen.getContext("2d")!;
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, w, h);
+            URL.revokeObjectURL(url);
+            setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
+            regionHistory.reset([]);
+            setPalette(extractPaletteColors(imageData, 8));
+            setStatus(`クリップボードから読み込み: ${w}x${h}`);
+            // auto-fit on paste
+            requestAnimationFrame(() => {
+              const container = containerRef.current;
+              if (container) zoom.fitToContainer(container.clientWidth, container.clientHeight, w, h);
+            });
+          };
+          img.onerror = () => {
+            setStatus("クリップボード画像の読み込みに失敗しました");
+            URL.revokeObjectURL(url);
+          };
+          img.src = url;
+        }).catch(() => setStatus("クリップボード読み込みエラー"));
+        return;
+      }
+      setStatus("クリップボードに画像がありません");
+    }).catch(() => setStatus("クリップボードへのアクセスが拒否されました"));
+  }, [regionHistory, zoom]);
+
+  // ---------------------------------------------------------------------------
+  // B-1: Transparent white
+  // ---------------------------------------------------------------------------
+
+  const handleTransparentWhite = useCallback(() => {
+    if (!baseState.imageData) return;
+    const { pixels } = makeWhiteTransparent(baseState.imageData, 5);
+    if (pixels.length === 0) {
+      setStatus("白ピクセルが見つかりませんでした");
+      return;
+    }
+    const newRegion: PaintRegion = {
+      id: `region-${Date.now()}`,
+      pixels,
+      color: "#ffffff",
+      transparent: true,
+    };
+    regionHistory.push([...regions, newRegion]);
+    setStatus(`白を透過: ${pixels.length}px`);
+  }, [baseState.imageData, regions, regionHistory]);
+
+  // ---------------------------------------------------------------------------
+  // B-2: Save brand swatch
+  // ---------------------------------------------------------------------------
+
+  const handleSaveBrandSwatch = useCallback(() => {
+    setBrandSwatches((prev) => {
+      if (prev.includes(selectedColor)) return prev;
+      const next = [selectedColor, ...prev].slice(0, BRAND_SWATCHES_MAX);
+      saveBrandSwatches(next);
+      return next;
+    });
+    setStatus(`ブランドカラーに保存: ${selectedColor.toUpperCase()}`);
+  }, [selectedColor]);
+
+  const handleRemoveBrandSwatch = useCallback((hex: string) => {
+    setBrandSwatches((prev) => {
+      const next = prev.filter((c) => c !== hex);
+      saveBrandSwatches(next);
+      return next;
+    });
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Export handlers
@@ -759,17 +1051,24 @@ export function MvpEditor() {
       ? "grabbing"
       : "grab"
     : mode === "eyedropper"
-      ? "crosshair"
+      ? "cell"
       : mode === "replace-all"
-        ? "pointer"
-        : baseState.imageData
-          ? "crosshair"
+        ? "crosshair"
+        : mode === "color" || mode === "transparent"
+          ? baseState.imageData ? "crosshair" : "default"
           : "default";
 
   const zoomPercent = Math.round(zoom.scale * 100);
 
   // Mapping entries: color regions only, most recent first
   const mappingEntries = regions.filter((r) => !r.transparent).slice().reverse();
+
+  // Mode label (Japanese + English) for status bar
+  const modeLabel =
+    mode === "color" ? "色変更 / Color" :
+    mode === "transparent" ? "透過 / Transparent" :
+    mode === "eyedropper" ? "スポイト / Eyedropper" :
+    "一括置換 / Replace-All";
 
   // ---------------------------------------------------------------------------
   // Render
@@ -821,6 +1120,7 @@ export function MvpEditor() {
         <span style={labelStyle}>モード:</span>
         <button
           type="button"
+          aria-pressed={mode === "color" ? "true" : "false"}
           onClick={() => setMode("color")}
           style={{ ...btnStyle, background: mode === "color" ? "#0066cc" : "#444" }}
           title="塗りつぶし色変更"
@@ -829,6 +1129,7 @@ export function MvpEditor() {
         </button>
         <button
           type="button"
+          aria-pressed={mode === "transparent" ? "true" : "false"}
           onClick={() => setMode("transparent")}
           style={{ ...btnStyle, background: mode === "transparent" ? "#0066cc" : "#444" }}
           title="塗りつぶし透過"
@@ -837,6 +1138,7 @@ export function MvpEditor() {
         </button>
         <button
           type="button"
+          aria-pressed={mode === "eyedropper" ? "true" : "false"}
           onClick={() => setMode("eyedropper")}
           style={{ ...btnStyle, background: mode === "eyedropper" ? "#cc6600" : "#444" }}
           title="スポイト (I)"
@@ -845,6 +1147,7 @@ export function MvpEditor() {
         </button>
         <button
           type="button"
+          aria-pressed={mode === "replace-all" ? "true" : "false"}
           onClick={() => setMode("replace-all")}
           style={{ ...btnStyle, background: mode === "replace-all" ? "#7700cc" : "#444" }}
           title="同色一括置換 (R)"
@@ -875,6 +1178,28 @@ export function MvpEditor() {
           onChange={(e) => setTolerance(Number(e.target.value))}
           style={{ width: 80 }}
         />
+
+        {/* B-2: antialias boundary inclusion */}
+        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
+          <input
+            type="checkbox"
+            checked={includeAntialias}
+            onChange={(e) => setIncludeAntialias(e.target.checked)}
+            style={{ cursor: "pointer" }}
+          />
+          境界含める
+        </label>
+
+        {/* B-3: connectivity toggle */}
+        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
+          <input
+            type="checkbox"
+            checked={connectivity === 8}
+            onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
+            style={{ cursor: "pointer" }}
+          />
+          8近傍
+        </label>
       </div>
 
       {/* Toolbar row 2 */}
@@ -972,6 +1297,44 @@ export function MvpEditor() {
 
         <div style={dividerStyle} />
 
+        {/* B-1: Transparent white */}
+        <button
+          type="button"
+          onClick={handleTransparentWhite}
+          disabled={!baseState.imageData}
+          style={{ ...btnStyle, background: "#445566" }}
+          title="白色 (#FFFFFF ±5) を全画素で透過にする"
+        >
+          白を透過
+        </button>
+
+        {/* B-2: Save brand swatch */}
+        {(mode === "color" || mode === "replace-all") && (
+          <button
+            type="button"
+            onClick={handleSaveBrandSwatch}
+            style={{ ...btnStyle, background: "#334455" }}
+            title="現在の選択色をブランドカラーとして保存 (最大8色)"
+          >
+            色を保存
+          </button>
+        )}
+
+        {/* B-3: Before/after comparison */}
+        <button
+          type="button"
+          onMouseDown={() => setComparing(true)}
+          onMouseUp={() => setComparing(false)}
+          onMouseLeave={() => setComparing(false)}
+          disabled={!baseState.imageData || regions.length === 0}
+          style={{ ...btnStyle, background: comparing ? "#666633" : "#444" }}
+          title="押している間は編集前の元画像を表示"
+        >
+          比較
+        </button>
+
+        <div style={dividerStyle} />
+
         {/* Panel toggles */}
         <button
           type="button"
@@ -1021,6 +1384,69 @@ export function MvpEditor() {
                 padding: 0,
               }}
             />
+          ))}
+        </div>
+      )}
+
+      {/* B-2: Brand color swatches panel */}
+      {brandSwatches.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 12px",
+            background: "#161616",
+            borderBottom: "1px solid #2a2a2a",
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ ...labelStyle, marginRight: 4 }}>ブランド:</span>
+          {brandSwatches.map((hex) => (
+            <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedColor(hex);
+                  if (mode !== "color" && mode !== "replace-all") setMode("color");
+                }}
+                title={hex.toUpperCase()}
+                style={{
+                  width: 24,
+                  height: 24,
+                  background: hex,
+                  border: selectedColor === hex ? "2px solid #fff" : "1px solid #666",
+                  borderRadius: 3,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => handleRemoveBrandSwatch(hex)}
+                title={`${hex.toUpperCase()} を削除`}
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -4,
+                  width: 12,
+                  height: 12,
+                  background: "#600",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "50%",
+                  cursor: "pointer",
+                  fontSize: 8,
+                  lineHeight: "12px",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ×
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -1091,9 +1517,10 @@ export function MvpEditor() {
             </div>
           )}
 
-          {/* Status bar (bottom-left) */}
+          {/* Status bar (bottom-left): mode name + hover info or status */}
           {baseState.imageData && (
             <div style={statusBarStyle}>
+              <span style={{ color: "#888", marginRight: 6 }}>[{modeLabel}]</span>
               {hoverInfo ?? status}
             </div>
           )}
