@@ -19,7 +19,7 @@ interface BaseState {
   naturalHeight: number;
 }
 
-type EditorMode = "color" | "transparent";
+type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,6 +29,7 @@ const DEFAULT_COLOR = "#ff0000";
 const DEFAULT_TOLERANCE = 32;
 const SVG_TARGET_LONG_EDGE = 2048;
 const ACCEPTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg", ".gif"];
+const PALETTE_BUCKETS = 32; // quantization step per channel
 
 // ---------------------------------------------------------------------------
 // Pure utility functions (exported for testing)
@@ -42,6 +43,10 @@ export function hexToRgb(hex: string): [number, number, number] {
     parseInt(result[2], 16),
     parseInt(result[3], 16),
   ];
+}
+
+export function rgbToHex(r: number, g: number, b: number): string {
+  return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
 function colorDistance(
@@ -106,6 +111,86 @@ export function floodFillSelect(
 }
 
 /**
+ * Selects all pixels in the image whose color is within tolerance of the
+ * pixel at (startX, startY), regardless of connectivity.
+ */
+export function replaceAllSelect(
+  imageData: ImageData,
+  startX: number,
+  startY: number,
+  tolerance: number
+): { x: number; y: number }[] {
+  const { width, height, data } = imageData;
+  const startIdx = (startY * width + startX) * 4;
+  const startR = data[startIdx];
+  const startG = data[startIdx + 1];
+  const startB = data[startIdx + 2];
+
+  const result: { x: number; y: number }[] = [];
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      if (colorDistance(r, g, b, startR, startG, startB) <= tolerance) {
+        result.push({ x, y });
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Picks the RGB color of a single pixel from ImageData.
+ * Returns [r, g, b] or null if out of bounds.
+ */
+export function pickPixelColor(
+  imageData: ImageData,
+  x: number,
+  y: number
+): [number, number, number] | null {
+  const { width, height, data } = imageData;
+  if (x < 0 || x >= width || y < 0 || y >= height) return null;
+  const idx = (y * width + x) * 4;
+  return [data[idx], data[idx + 1], data[idx + 2]];
+}
+
+/**
+ * Extracts up to `count` dominant colors from ImageData using histogram
+ * quantization (each channel bucketed to PALETTE_BUCKETS steps).
+ */
+export function extractPaletteColors(
+  imageData: ImageData,
+  count: number
+): string[] {
+  const { width, height, data } = imageData;
+  const bucketMap = new Map<number, number>();
+  const step = PALETTE_BUCKETS;
+
+  for (let i = 0; i < width * height; i++) {
+    const r = Math.floor(data[i * 4] / step) * step;
+    const g = Math.floor(data[i * 4 + 1] / step) * step;
+    const b = Math.floor(data[i * 4 + 2] / step) * step;
+    const a = data[i * 4 + 3];
+    if (a < 128) continue; // skip mostly-transparent pixels
+    const key = (r << 16) | (g << 8) | b;
+    bucketMap.set(key, (bucketMap.get(key) ?? 0) + 1);
+  }
+
+  const sorted = [...bucketMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count);
+
+  return sorted.map(([key]) => {
+    const r = (key >> 16) & 0xff;
+    const g = (key >> 8) & 0xff;
+    const b = key & 0xff;
+    return rgbToHex(r, g, b);
+  });
+}
+
+/**
  * Applies all paint regions to the base imageData and returns composited ImageData.
  * No layer opacity/visibility — regions are directly applied on top of base.
  */
@@ -140,12 +225,22 @@ export function compositeRegions(
 /**
  * Converts ImageData to a PNG data URL via an offscreen canvas.
  */
-function imageDataToPngDataUrl(imageData: ImageData): string {
+function imageDataToPngDataUrl(imageData: ImageData, scale = 1): string {
   const canvas = document.createElement("canvas");
-  canvas.width = imageData.width;
-  canvas.height = imageData.height;
+  canvas.width = imageData.width * scale;
+  canvas.height = imageData.height * scale;
   const ctx = canvas.getContext("2d")!;
-  ctx.putImageData(imageData, 0, 0);
+  if (scale > 1) {
+    ctx.imageSmoothingEnabled = false;
+    const tmpCanvas = document.createElement("canvas");
+    tmpCanvas.width = imageData.width;
+    tmpCanvas.height = imageData.height;
+    const tmpCtx = tmpCanvas.getContext("2d")!;
+    tmpCtx.putImageData(imageData, 0, 0);
+    ctx.drawImage(tmpCanvas, 0, 0, imageData.width * scale, imageData.height * scale);
+  } else {
+    ctx.putImageData(imageData, 0, 0);
+  }
   return canvas.toDataURL("image/png");
 }
 
@@ -311,11 +406,16 @@ export function MvpEditor() {
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
   const [status, setStatus] = useState("画像を読み込んでください");
   const [spacePressed, setSpacePressed] = useState(false);
+  const [hoverInfo, setHoverInfo] = useState<string | null>(null);
+  const [palette, setPalette] = useState<string[]>([]);
+  const [pngScale, setPngScale] = useState<1 | 2 | 4>(1);
+  const [showMapping, setShowMapping] = useState(true);
+  const [showPalette, setShowPalette] = useState(true);
 
   const zoom = useZoomPan(spacePressed);
 
   // ---------------------------------------------------------------------------
-  // Keyboard shortcuts: Ctrl+Z, Ctrl+Y, Space
+  // Keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+0, Space, I, R
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -337,6 +437,29 @@ export function MvpEditor() {
         setStatus("やり直しました");
         return;
       }
+      if (e.ctrlKey && e.key === "0") {
+        e.preventDefault();
+        const container = containerRef.current;
+        if (container && baseState.naturalWidth > 0) {
+          zoom.fitToContainer(
+            container.clientWidth,
+            container.clientHeight,
+            baseState.naturalWidth,
+            baseState.naturalHeight
+          );
+        }
+        return;
+      }
+      // I = eyedropper
+      if (!e.ctrlKey && !e.altKey && e.key === "i") {
+        setMode("eyedropper");
+        return;
+      }
+      // R = replace-all
+      if (!e.ctrlKey && !e.altKey && e.key === "r") {
+        setMode("replace-all");
+        return;
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -351,7 +474,7 @@ export function MvpEditor() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [regionHistory]);
+  }, [regionHistory, baseState.naturalWidth, baseState.naturalHeight, zoom]);
 
   // ---------------------------------------------------------------------------
   // Canvas redraw
@@ -401,6 +524,7 @@ export function MvpEditor() {
             URL.revokeObjectURL(url);
             setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
             regionHistory.reset([]);
+            setPalette(extractPaletteColors(imageData, 8));
             setStatus(`画像読み込み完了: ${w}x${h}`);
           };
           img.onerror = () => {
@@ -428,6 +552,7 @@ export function MvpEditor() {
         URL.revokeObjectURL(url);
         setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
         regionHistory.reset([]);
+        setPalette(extractPaletteColors(imageData, 8));
         setStatus(`画像読み込み完了: ${w}x${h}`);
       };
       img.onerror = () => {
@@ -461,7 +586,7 @@ export function MvpEditor() {
   );
 
   // ---------------------------------------------------------------------------
-  // Canvas interaction
+  // Canvas coordinate helper
   // ---------------------------------------------------------------------------
 
   const getCanvasCoords = useCallback(
@@ -480,6 +605,35 @@ export function MvpEditor() {
     [baseState]
   );
 
+  // ---------------------------------------------------------------------------
+  // Canvas interactions
+  // ---------------------------------------------------------------------------
+
+  const handleCanvasMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!baseState.imageData) return;
+      const coords = getCanvasCoords(e);
+      if (!coords) {
+        setHoverInfo(null);
+        return;
+      }
+      const { x, y } = coords;
+      const rgb = pickPixelColor(baseState.imageData, x, y);
+      if (!rgb) {
+        setHoverInfo(null);
+        return;
+      }
+      const [r, g, b] = rgb;
+      const hex = rgbToHex(r, g, b).toUpperCase();
+      setHoverInfo(`X: ${x}, Y: ${y} | ${hex} (${r}, ${g}, ${b})`);
+    },
+    [baseState, getCanvasCoords]
+  );
+
+  const handleCanvasMouseLeave = useCallback(() => {
+    setHoverInfo(null);
+  }, []);
+
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (spacePressed) return;
@@ -488,6 +642,33 @@ export function MvpEditor() {
       if (!coords) return;
       const { x, y } = coords;
 
+      // Eyedropper mode: pick color and switch back to color mode
+      if (mode === "eyedropper") {
+        const rgb = pickPixelColor(baseState.imageData, x, y);
+        if (!rgb) return;
+        const hex = rgbToHex(rgb[0], rgb[1], rgb[2]);
+        setSelectedColor(hex);
+        setMode("color");
+        setStatus(`スポイト: ${hex.toUpperCase()} を選択`);
+        return;
+      }
+
+      // Replace-all mode: select all pixels of same color globally
+      if (mode === "replace-all") {
+        const pixels = replaceAllSelect(baseState.imageData, x, y, tolerance);
+        if (pixels.length === 0) return;
+        const newRegion: PaintRegion = {
+          id: `region-${Date.now()}`,
+          pixels,
+          color: selectedColor,
+          transparent: false,
+        };
+        regionHistory.push([...regions, newRegion]);
+        setStatus(`一括置換: ${pixels.length}px → ${selectedColor}`);
+        return;
+      }
+
+      // Color / transparent mode: flood fill
       const pixels = floodFillSelect(baseState.imageData, x, y, tolerance);
       if (pixels.length === 0) return;
 
@@ -506,6 +687,19 @@ export function MvpEditor() {
       );
     },
     [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Remove a specific region by id (mapping table undo)
+  // ---------------------------------------------------------------------------
+
+  const handleRemoveRegion = useCallback(
+    (id: string) => {
+      const next = regions.filter((r) => r.id !== id);
+      regionHistory.push(next);
+      setStatus("リージョンを削除しました");
+    },
+    [regions, regionHistory]
   );
 
   // ---------------------------------------------------------------------------
@@ -533,13 +727,13 @@ export function MvpEditor() {
   const handleExportPng = useCallback(() => {
     if (!baseState.imageData) return;
     const composited = compositeRegions(baseState.imageData, regions);
-    const url = imageDataToPngDataUrl(composited);
+    const url = imageDataToPngDataUrl(composited, pngScale);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "export.png";
+    a.download = `export_${pngScale}x.png`;
     a.click();
-    setStatus("PNGをエクスポートしました");
-  }, [baseState, regions]);
+    setStatus(`PNGをエクスポートしました (${pngScale}x)`);
+  }, [baseState, regions, pngScale]);
 
   // ---------------------------------------------------------------------------
   // Fit to container
@@ -564,11 +758,18 @@ export function MvpEditor() {
     ? zoom.isPanning
       ? "grabbing"
       : "grab"
-    : baseState.imageData
+    : mode === "eyedropper"
       ? "crosshair"
-      : "default";
+      : mode === "replace-all"
+        ? "pointer"
+        : baseState.imageData
+          ? "crosshair"
+          : "default";
 
   const zoomPercent = Math.round(zoom.scale * 100);
+
+  // Mapping entries: color regions only, most recent first
+  const mappingEntries = regions.filter((r) => !r.transparent).slice().reverse();
 
   // ---------------------------------------------------------------------------
   // Render
@@ -586,15 +787,15 @@ export function MvpEditor() {
         fontFamily: "sans-serif",
       }}
     >
-      {/* Toolbar */}
+      {/* Toolbar row 1 */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 10,
-          padding: "8px 16px",
+          gap: 8,
+          padding: "6px 12px",
           background: "#1a1a1a",
-          borderBottom: "1px solid #444",
+          borderBottom: "1px solid #333",
           flexWrap: "wrap",
         }}
       >
@@ -622,6 +823,7 @@ export function MvpEditor() {
           type="button"
           onClick={() => setMode("color")}
           style={{ ...btnStyle, background: mode === "color" ? "#0066cc" : "#444" }}
+          title="塗りつぶし色変更"
         >
           色変更
         </button>
@@ -629,12 +831,29 @@ export function MvpEditor() {
           type="button"
           onClick={() => setMode("transparent")}
           style={{ ...btnStyle, background: mode === "transparent" ? "#0066cc" : "#444" }}
+          title="塗りつぶし透過"
         >
           透過
         </button>
+        <button
+          type="button"
+          onClick={() => setMode("eyedropper")}
+          style={{ ...btnStyle, background: mode === "eyedropper" ? "#cc6600" : "#444" }}
+          title="スポイト (I)"
+        >
+          スポイト
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("replace-all")}
+          style={{ ...btnStyle, background: mode === "replace-all" ? "#7700cc" : "#444" }}
+          title="同色一括置換 (R)"
+        >
+          一括置換
+        </button>
 
-        {/* Color picker (HTML native) */}
-        {mode === "color" && (
+        {/* Color picker */}
+        {(mode === "color" || mode === "replace-all") && (
           <input
             type="color"
             value={selectedColor}
@@ -643,6 +862,8 @@ export function MvpEditor() {
             title="色を選択"
           />
         )}
+
+        <div style={dividerStyle} />
 
         {/* Tolerance */}
         <span style={labelStyle}>許容値: {tolerance}</span>
@@ -654,10 +875,21 @@ export function MvpEditor() {
           onChange={(e) => setTolerance(Number(e.target.value))}
           style={{ width: 80 }}
         />
+      </div>
 
-        <div style={dividerStyle} />
-
-        {/* Undo / Redo */}
+      {/* Toolbar row 2 */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 12px",
+          background: "#1e1e1e",
+          borderBottom: "1px solid #444",
+          flexWrap: "wrap",
+        }}
+      >
+        {/* Undo / Redo / Reset */}
         <button
           type="button"
           onClick={() => { regionHistory.undo(); setStatus("元に戻しました"); }}
@@ -687,19 +919,20 @@ export function MvpEditor() {
 
         <div style={dividerStyle} />
 
-        {/* Zoom */}
+        {/* Zoom fit */}
         <button
           type="button"
           onClick={handleFit}
           disabled={!baseState.imageData}
           style={btnStyle}
+          title="フィット表示 (Ctrl+0)"
         >
           Fit
         </button>
 
         <div style={dividerStyle} />
 
-        {/* Export */}
+        {/* Export SVG */}
         <button
           type="button"
           onClick={handleExportSvg}
@@ -708,6 +941,8 @@ export function MvpEditor() {
         >
           SVG出力
         </button>
+
+        {/* Export PNG with scale selector */}
         <button
           type="button"
           onClick={handleExportPng}
@@ -716,83 +951,233 @@ export function MvpEditor() {
         >
           PNG出力
         </button>
+        <select
+          value={pngScale}
+          onChange={(e) => setPngScale(Number(e.target.value) as 1 | 2 | 4)}
+          style={{
+            background: "#333",
+            color: "#f0f0f0",
+            border: "1px solid #666",
+            borderRadius: 4,
+            fontSize: 12,
+            padding: "3px 4px",
+            cursor: "pointer",
+          }}
+          title="PNG出力倍率"
+        >
+          <option value={1}>1x</option>
+          <option value={2}>2x</option>
+          <option value={4}>4x</option>
+        </select>
 
-        <span style={{ marginLeft: "auto", fontSize: 11, color: "#888" }}>{status}</span>
+        <div style={dividerStyle} />
+
+        {/* Panel toggles */}
+        <button
+          type="button"
+          onClick={() => setShowPalette((v) => !v)}
+          style={{ ...btnStyle, background: showPalette ? "#555" : "#333" }}
+        >
+          {showPalette ? "パレット ▲" : "パレット ▼"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowMapping((v) => !v)}
+          style={{ ...btnStyle, background: showMapping ? "#555" : "#333" }}
+        >
+          {showMapping ? "編集ログ ▲" : "編集ログ ▼"}
+        </button>
       </div>
 
-      {/* Canvas area */}
-      <div
-        ref={containerRef}
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        onWheel={zoom.onWheel}
-        onMouseDown={zoom.onMouseDown}
-        onMouseMove={zoom.onMouseMove}
-        onMouseUp={zoom.onMouseUp}
-        onMouseLeave={zoom.onMouseUp}
-        style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-          position: "relative",
-          cursor: canvasCursor,
-          backgroundImage:
-            "linear-gradient(45deg, #3a3a3a 25%, transparent 25%), " +
-            "linear-gradient(-45deg, #3a3a3a 25%, transparent 25%), " +
-            "linear-gradient(45deg, transparent 75%, #3a3a3a 75%), " +
-            "linear-gradient(-45deg, transparent 75%, #3a3a3a 75%)",
-          backgroundSize: "16px 16px",
-          backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-        }}
-      >
-        {!baseState.imageData ? (
-          <div
-            style={{
-              border: "2px dashed #666",
-              borderRadius: 8,
-              padding: "48px 64px",
-              textAlign: "center",
-              color: "#888",
-              pointerEvents: "none",
-            }}
-          >
-            <p style={{ margin: 0, fontSize: 18 }}>ここに画像をドロップ</p>
-            <p style={{ margin: "8px 0 0", fontSize: 13 }}>または「画像を開く」ボタン</p>
-            <p style={{ margin: "4px 0 0", fontSize: 11, color: "#666" }}>PNG / JPG / SVG / WebP / BMP 対応</p>
-          </div>
-        ) : (
-          <div
-            style={{
-              transform: `translate(${zoom.offsetX}px, ${zoom.offsetY}px) scale(${zoom.scale})`,
-              transformOrigin: "0 0",
-              position: "absolute",
-              top: 0,
-              left: 0,
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              width={baseState.naturalWidth}
-              height={baseState.naturalHeight}
-              onClick={handleCanvasClick}
-              style={{ cursor: canvasCursor, display: "block" }}
+      {/* Palette panel */}
+      {showPalette && palette.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 12px",
+            background: "#181818",
+            borderBottom: "1px solid #333",
+          }}
+        >
+          <span style={{ ...labelStyle, marginRight: 4 }}>主要色:</span>
+          {palette.map((hex) => (
+            <button
+              key={hex}
+              type="button"
+              onClick={() => {
+                setSelectedColor(hex);
+                if (mode !== "color" && mode !== "replace-all") setMode("color");
+              }}
+              title={hex.toUpperCase()}
+              style={{
+                width: 24,
+                height: 24,
+                background: hex,
+                border: selectedColor === hex ? "2px solid #fff" : "1px solid #555",
+                borderRadius: 3,
+                cursor: "pointer",
+                padding: 0,
+              }}
             />
-          </div>
-        )}
+          ))}
+        </div>
+      )}
 
-        {/* Status bar (bottom-left) */}
-        {baseState.imageData && (
-          <div style={statusBarStyle}>
-            モード: {mode === "color" ? "色変更" : "透過"} | {baseState.naturalWidth}x{baseState.naturalHeight}
-          </div>
-        )}
+      {/* Main area: canvas + right sidebar */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        {/* Canvas area */}
+        <div
+          ref={containerRef}
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+          onWheel={zoom.onWheel}
+          onMouseDown={zoom.onMouseDown}
+          onMouseMove={zoom.onMouseMove}
+          onMouseUp={zoom.onMouseUp}
+          onMouseLeave={zoom.onMouseUp}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+            position: "relative",
+            cursor: canvasCursor,
+            backgroundImage:
+              "linear-gradient(45deg, #3a3a3a 25%, transparent 25%), " +
+              "linear-gradient(-45deg, #3a3a3a 25%, transparent 25%), " +
+              "linear-gradient(45deg, transparent 75%, #3a3a3a 75%), " +
+              "linear-gradient(-45deg, transparent 75%, #3a3a3a 75%)",
+            backgroundSize: "16px 16px",
+            backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+          }}
+        >
+          {!baseState.imageData ? (
+            <div
+              style={{
+                border: "2px dashed #666",
+                borderRadius: 8,
+                padding: "48px 64px",
+                textAlign: "center",
+                color: "#888",
+                pointerEvents: "none",
+              }}
+            >
+              <p style={{ margin: 0, fontSize: 18 }}>ここに画像をドロップ</p>
+              <p style={{ margin: "8px 0 0", fontSize: 13 }}>または「画像を開く」ボタン</p>
+              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#666" }}>PNG / JPG / SVG / WebP / BMP 対応</p>
+            </div>
+          ) : (
+            <div
+              style={{
+                transform: `translate(${zoom.offsetX}px, ${zoom.offsetY}px) scale(${zoom.scale})`,
+                transformOrigin: "0 0",
+                position: "absolute",
+                top: 0,
+                left: 0,
+              }}
+            >
+              <canvas
+                ref={canvasRef}
+                width={baseState.naturalWidth}
+                height={baseState.naturalHeight}
+                onClick={handleCanvasClick}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseLeave={handleCanvasMouseLeave}
+                style={{ cursor: canvasCursor, display: "block" }}
+              />
+            </div>
+          )}
 
-        {/* Zoom indicator (bottom-right) */}
-        {baseState.imageData && (
-          <div style={zoomIndicatorStyle}>
-            {zoomPercent}%
+          {/* Status bar (bottom-left) */}
+          {baseState.imageData && (
+            <div style={statusBarStyle}>
+              {hoverInfo ?? status}
+            </div>
+          )}
+
+          {/* Zoom indicator (bottom-right) */}
+          {baseState.imageData && (
+            <div style={zoomIndicatorStyle}>
+              {zoomPercent}%
+            </div>
+          )}
+        </div>
+
+        {/* Mapping sidebar */}
+        {showMapping && mappingEntries.length > 0 && (
+          <div
+            style={{
+              width: 220,
+              background: "#181818",
+              borderLeft: "1px solid #333",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: "1px solid #333",
+                fontSize: 11,
+                color: "#aaa",
+                fontWeight: "bold",
+              }}
+            >
+              編集ログ ({mappingEntries.length})
+            </div>
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {mappingEntries.map((region) => (
+                <div
+                  key={region.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 8px",
+                    borderBottom: "1px solid #222",
+                    fontSize: 11,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 14,
+                      height: 14,
+                      background: region.color,
+                      border: "1px solid #555",
+                      borderRadius: 2,
+                      flexShrink: 0,
+                      display: "inline-block",
+                    }}
+                  />
+                  <span style={{ color: "#ccc", flex: 1, fontFamily: "monospace", fontSize: 10 }}>
+                    {region.color.toUpperCase()}
+                    <br />
+                    <span style={{ color: "#666" }}>{region.pixels.length}px</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveRegion(region.id)}
+                    style={{
+                      background: "#400",
+                      color: "#f88",
+                      border: "none",
+                      borderRadius: 2,
+                      cursor: "pointer",
+                      fontSize: 10,
+                      padding: "1px 5px",
+                      flexShrink: 0,
+                    }}
+                    title="このリージョンを削除"
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -805,23 +1190,23 @@ export function MvpEditor() {
 // ---------------------------------------------------------------------------
 
 const btnStyle: React.CSSProperties = {
-  padding: "4px 12px",
+  padding: "4px 10px",
   background: "#444",
   color: "#f0f0f0",
   border: "1px solid #666",
   borderRadius: 4,
   cursor: "pointer",
-  fontSize: 13,
+  fontSize: 12,
 };
 
 const dividerStyle: React.CSSProperties = {
   width: 1,
-  height: 24,
+  height: 22,
   background: "#444",
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 11,
   color: "#aaa",
 };
 
@@ -830,11 +1215,15 @@ const statusBarStyle: React.CSSProperties = {
   bottom: 8,
   left: 12,
   fontSize: 11,
-  color: "#aaa",
-  background: "rgba(0,0,0,0.5)",
+  color: "#ccc",
+  background: "rgba(0,0,0,0.6)",
   padding: "2px 8px",
   borderRadius: 3,
   pointerEvents: "none",
+  maxWidth: "60%",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const zoomIndicatorStyle: React.CSSProperties = {

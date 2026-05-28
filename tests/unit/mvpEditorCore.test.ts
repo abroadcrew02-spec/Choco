@@ -14,6 +14,10 @@ import {
   floodFillSelect,
   isAcceptedImageFile,
   hexToRgb,
+  rgbToHex,
+  replaceAllSelect,
+  pickPixelColor,
+  extractPaletteColors,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 
@@ -343,5 +347,121 @@ describe("UndoRedo state machine (history limit = 10)", () => {
     s = urRedo(s);
     s = urRedo(s);
     expect(urCurrent(s)).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rgbToHex
+// ---------------------------------------------------------------------------
+
+describe("rgbToHex", () => {
+  it("converts pure red", () => {
+    expect(rgbToHex(255, 0, 0)).toBe("#ff0000");
+  });
+  it("converts pure white", () => {
+    expect(rgbToHex(255, 255, 255)).toBe("#ffffff");
+  });
+  it("converts black", () => {
+    expect(rgbToHex(0, 0, 0)).toBe("#000000");
+  });
+  it("hexToRgb and rgbToHex are inverse", () => {
+    const [r, g, b] = hexToRgb("#1a2b3c");
+    expect(rgbToHex(r, g, b)).toBe("#1a2b3c");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickPixelColor
+// ---------------------------------------------------------------------------
+
+describe("pickPixelColor", () => {
+  it("returns correct RGB for a solid image", () => {
+    const img = makeSolidImageData(3, 3, 100, 150, 200);
+    expect(pickPixelColor(img, 1, 1)).toEqual([100, 150, 200]);
+  });
+  it("returns null for out-of-bounds coordinates", () => {
+    const img = makeSolidImageData(2, 2, 0, 0, 0);
+    expect(pickPixelColor(img, -1, 0)).toBeNull();
+    expect(pickPixelColor(img, 0, 5)).toBeNull();
+    expect(pickPixelColor(img, 2, 0)).toBeNull();
+  });
+  it("returns pixel at (0,0) correctly", () => {
+    const img = makeSolidImageData(1, 1, 255, 128, 64);
+    expect(pickPixelColor(img, 0, 0)).toEqual([255, 128, 64]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// replaceAllSelect
+// ---------------------------------------------------------------------------
+
+describe("replaceAllSelect", () => {
+  it("selects all pixels in a uniform image", () => {
+    const img = makeSolidImageData(4, 4, 200, 100, 50);
+    const result = replaceAllSelect(img, 0, 0, 0);
+    expect(result).toHaveLength(16);
+  });
+
+  it("selects only matching pixels across non-adjacent regions", () => {
+    // 4x2: left 2 cols = red, right 2 cols = blue
+    const data = new Uint8ClampedArray(4 * 2 * 4);
+    for (let y = 0; y < 2; y++) {
+      for (let x = 0; x < 4; x++) {
+        const i = (y * 4 + x) * 4;
+        if (x < 2) {
+          data[i] = 255; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255;
+        } else {
+          data[i] = 0; data[i + 1] = 0; data[i + 2] = 255; data[i + 3] = 255;
+        }
+      }
+    }
+    const img = new ImageData(data, 4, 2);
+    const reds = replaceAllSelect(img, 0, 0, 0);
+    expect(reds).toHaveLength(4);
+    for (const p of reds) expect(p.x).toBeLessThan(2);
+
+    const blues = replaceAllSelect(img, 2, 0, 0);
+    expect(blues).toHaveLength(4);
+    for (const p of blues) expect(p.x).toBeGreaterThanOrEqual(2);
+  });
+
+  it("respects tolerance and includes near-match pixels", () => {
+    // pixel (0,0)=255,0,0 and pixel (1,0)=250,0,0 — distance=5
+    const data = new Uint8ClampedArray(2 * 1 * 4);
+    data[0] = 255; data[1] = 0; data[2] = 0; data[3] = 255;
+    data[4] = 250; data[5] = 0; data[6] = 0; data[7] = 255;
+    const img = new ImageData(data, 2, 1);
+    expect(replaceAllSelect(img, 0, 0, 0)).toHaveLength(1);
+    expect(replaceAllSelect(img, 0, 0, 10)).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractPaletteColors
+// ---------------------------------------------------------------------------
+
+describe("extractPaletteColors", () => {
+  it("returns at most count colors", () => {
+    const img = makeSolidImageData(4, 4, 100, 100, 100);
+    const palette = extractPaletteColors(img, 8);
+    expect(palette.length).toBeLessThanOrEqual(8);
+  });
+
+  it("returns hex strings in lowercase #rrggbb format", () => {
+    const img = makeSolidImageData(2, 2, 255, 0, 0);
+    const palette = extractPaletteColors(img, 4);
+    expect(palette.length).toBeGreaterThan(0);
+    for (const hex of palette) {
+      expect(hex).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+
+  it("skips mostly-transparent pixels", () => {
+    // All pixels have alpha=0, should yield empty palette
+    const data = new Uint8ClampedArray(4 * 4 * 4);
+    // data is all zeros (alpha=0)
+    const img = new ImageData(data, 4, 4);
+    const palette = extractPaletteColors(img, 8);
+    expect(palette).toHaveLength(0);
   });
 });
