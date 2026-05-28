@@ -18,7 +18,8 @@
         "label": "main",
         "title": "Choco",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "dragDropEnabled": true
       }
     ]
   },
@@ -35,13 +36,5 @@
     "publisher": "Choco Dev Team",
     "copyright": "Copyright 2026 Choco Dev Team"
   },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://github.com/abroadcrew02-spec/choco-releases/releases/latest/download/latest.json"
-      ],
-      "dialog": false,
-      "pubkey": "REPLACE_ME_AFTER_KEY_GEN"
-    }
-  }
+  "plugins": {}
 }

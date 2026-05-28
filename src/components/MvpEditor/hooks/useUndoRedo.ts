@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-const HISTORY_LIMIT = 30;
+const HISTORY_LIMIT = 10;
 
 export interface UndoRedoState<T> {
   history: T[];

@@ -1,10 +1,19 @@
 name: Release
 
-# Triggered by version tags: v1.2.3
+# Disabled: updater removed in Plan C reset. Re-enable when updater is restored.
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      disabled:
+        description: "This workflow is currently disabled"
+        required: false
+        default: "true"
+
+# Original trigger (disabled):
+# on:
+#   push:
+#     tags:
+#       - "v*.*.*"
 
 # Minimal permissions for the source repo job
 permissions:
