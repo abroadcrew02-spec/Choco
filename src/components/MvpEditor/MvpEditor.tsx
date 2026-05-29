@@ -1,6 +1,22 @@
 import { useRef, useState, useCallback, useEffect } from "react";
+import {
+  Paintbrush,
+  PaintBucket,
+  Eraser,
+  Pipette,
+  Replace,
+  Undo2,
+  Redo2,
+  FolderOpen,
+  Maximize2,
+  FileCode2,
+  Download,
+  Wand2,
+} from "lucide-react";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
+import { HsvPicker } from "./components/HsvPicker";
+import { Tooltip } from "./components/Tooltip";
 
 // ---------------------------------------------------------------------------
 // Design tokens — Professional Dark Studio
@@ -618,6 +634,82 @@ export function makeWhiteTransparent(
 }
 
 /**
+ * Closes small holes in a binary pixel selection mask using morphological
+ * closing (dilate then erode). Ported from logo_recolor_4.html closeMask().
+ *
+ * @param pixels - Array of selected pixel coordinates (mutated in place)
+ * @param width  - Image width in pixels
+ * @param height - Image height in pixels
+ * @param radius - Number of dilation/erosion passes (0 = no-op)
+ * @returns New array of pixel coordinates after closing
+ */
+export function closeMask(
+  pixels: { x: number; y: number }[],
+  width: number,
+  height: number,
+  radius: number
+): { x: number; y: number }[] {
+  if (radius <= 0 || pixels.length === 0) return pixels;
+
+  // Build binary mask from pixel list
+  let cur = new Uint8Array(width * height);
+  for (const { x, y } of pixels) {
+    cur[y * width + x] = 1;
+  }
+
+  // Dilate: r passes
+  for (let pass = 0; pass < radius; pass++) {
+    const next = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (cur[y * width + x]) {
+          next[y * width + x] = 1;
+          continue;
+        }
+        if (
+          (x > 0 && cur[y * width + x - 1]) ||
+          (x < width - 1 && cur[y * width + x + 1]) ||
+          (y > 0 && cur[(y - 1) * width + x]) ||
+          (y < height - 1 && cur[(y + 1) * width + x])
+        ) {
+          next[y * width + x] = 1;
+        }
+      }
+    }
+    cur = next;
+  }
+
+  // Erode: r passes
+  for (let pass = 0; pass < radius; pass++) {
+    const next = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (!cur[y * width + x]) continue;
+        if (
+          (x > 0 && !cur[y * width + x - 1]) ||
+          (x < width - 1 && !cur[y * width + x + 1]) ||
+          (y > 0 && !cur[(y - 1) * width + x]) ||
+          (y < height - 1 && !cur[(y + 1) * width + x])
+        ) {
+          continue;
+        }
+        next[y * width + x] = 1;
+      }
+    }
+    cur = next;
+  }
+
+  // Convert back to pixel array
+  const result: { x: number; y: number }[] = [];
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (cur[y * width + x]) result.push({ x, y });
+    }
+  }
+  return result;
+}
+
+/**
  * Rewrites an SVG string so its rendered size has a long edge of
  * SVG_TARGET_LONG_EDGE pixels, preserving aspect ratio.
  */
@@ -732,6 +824,14 @@ export function MvpEditor() {
   const [connectivity, setConnectivity] = useState<4 | 8>(4);
   // B-3: before/after comparison mode (show base without regions)
   const [comparing, setComparing] = useState(false);
+
+  // S2: HSV picker popup open/closed
+  const [hsvPickerOpen, setHsvPickerOpen] = useState(false);
+  // S2: hole-fill radius (0 = OFF, 1-5)
+  const [closeRadius, setCloseRadius] = useState(0);
+
+  // Ref for the color swatch button (to position the HSV picker)
+  const colorSwatchRef = useRef<HTMLButtonElement>(null);
 
   const zoom = useZoomPan(spacePressed);
 
@@ -1091,27 +1191,35 @@ export function MvpEditor() {
           setStatus(`滑らか置換 → ${selectedColor}`);
           return;
         }
-        const pixels = replaceAllSelect(baseState.imageData, x, y, tolerance);
-        if (pixels.length === 0) return;
+        let replacePixels = replaceAllSelect(baseState.imageData, x, y, tolerance);
+        if (replacePixels.length === 0) return;
+        if (closeRadius > 0) {
+          replacePixels = closeMask(replacePixels, baseState.naturalWidth, baseState.naturalHeight, closeRadius);
+        }
         const newRegion: PaintRegion = {
           id: `region-${Date.now()}`,
-          pixels,
+          pixels: replacePixels,
           color: selectedColor,
           transparent: false,
         };
         pushBakeSnapshot(bakeLayerRef.current);
         regionHistory.push([...regions, newRegion]);
-        setStatus(`一括置換: ${pixels.length}px → ${selectedColor}`);
+        setStatus(`一括置換: ${replacePixels.length}px → ${selectedColor}`);
         return;
       }
 
       // Color / transparent mode: flood fill (with optional 8-neighbor connectivity)
-      const pixels = floodFillSelect(
+      let pixels = floodFillSelect(
         baseState.imageData, x, y, tolerance,
         includeAntialias ? "antialias" : "normal",
         connectivity
       );
       if (pixels.length === 0) return;
+
+      // Apply hole-fill (closeRadius > 0)
+      if (closeRadius > 0) {
+        pixels = closeMask(pixels, baseState.naturalWidth, baseState.naturalHeight, closeRadius);
+      }
 
       const newRegion: PaintRegion = {
         id: `region-${Date.now()}`,
@@ -1128,7 +1236,7 @@ export function MvpEditor() {
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, pushBakeSnapshot, triggerRedraw]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, pushBakeSnapshot, triggerRedraw]
   );
 
   // ---------------------------------------------------------------------------
@@ -1463,16 +1571,20 @@ export function MvpEditor() {
           background: T.color.bgPanel,
           borderBottom: `1px solid ${T.color.border}`,
           flexWrap: "wrap",
+          position: "relative",
         }}
       >
         {/* Open image */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          style={btnStyle}
-        >
-          画像を開く
-        </button>
+        <Tooltip label="画像を開く">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            style={iconBtnStyle}
+            aria-label="画像を開く"
+          >
+            <FolderOpen size={18} />
+          </button>
+        </Tooltip>
         <input
           ref={fileInputRef}
           type="file"
@@ -1483,72 +1595,116 @@ export function MvpEditor() {
 
         <div style={dividerStyle} />
 
-        {/* Mode */}
-        <span style={labelStyle}>モード:</span>
-        <button
-          type="button"
-          aria-pressed={mode === "color" ? "true" : "false"}
-          onClick={() => setMode("color")}
-          style={mode === "color" ? btnActiveStyle : btnStyle}
-          title="塗りつぶし色変更"
-        >
-          色変更
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "transparent" ? "true" : "false"}
-          onClick={() => setMode("transparent")}
-          style={mode === "transparent" ? btnActiveStyle : btnStyle}
-          title="塗りつぶし透過"
-        >
-          透過
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "eyedropper" ? "true" : "false"}
-          onClick={() => setMode("eyedropper")}
-          style={mode === "eyedropper" ? btnActiveStyle : btnStyle}
-          title="スポイト (I)"
-        >
-          スポイト
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "replace-all" ? "true" : "false"}
-          onClick={() => setMode("replace-all")}
-          style={mode === "replace-all" ? btnActiveStyle : btnStyle}
-          title="同色一括置換 (R)"
-        >
-          一括置換
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "brush" ? "true" : "false"}
-          onClick={() => setMode("brush")}
-          style={mode === "brush" ? btnActiveStyle : btnStyle}
-          title="ブラシ (B)"
-        >
-          ブラシ
-        </button>
+        {/* Mode buttons (icon) */}
+        <Tooltip label="色変更">
+          <button
+            type="button"
+            aria-pressed={mode === "color" ? "true" : "false"}
+            onClick={() => setMode("color")}
+            style={mode === "color" ? iconBtnActiveStyle : iconBtnStyle}
+            aria-label="色変更"
+          >
+            <PaintBucket size={18} />
+          </button>
+        </Tooltip>
+        <Tooltip label="透過">
+          <button
+            type="button"
+            aria-pressed={mode === "transparent" ? "true" : "false"}
+            onClick={() => setMode("transparent")}
+            style={mode === "transparent" ? iconBtnActiveStyle : iconBtnStyle}
+            aria-label="透過"
+          >
+            <Eraser size={18} />
+          </button>
+        </Tooltip>
+        <Tooltip label="スポイト" shortcut="I">
+          <button
+            type="button"
+            aria-pressed={mode === "eyedropper" ? "true" : "false"}
+            onClick={() => setMode("eyedropper")}
+            style={mode === "eyedropper" ? iconBtnActiveStyle : iconBtnStyle}
+            aria-label="スポイト"
+          >
+            <Pipette size={18} />
+          </button>
+        </Tooltip>
+        <Tooltip label="同色一括" shortcut="R">
+          <button
+            type="button"
+            aria-pressed={mode === "replace-all" ? "true" : "false"}
+            onClick={() => setMode("replace-all")}
+            style={mode === "replace-all" ? iconBtnActiveStyle : iconBtnStyle}
+            aria-label="同色一括"
+          >
+            <Replace size={18} />
+          </button>
+        </Tooltip>
+        <Tooltip label="ブラシ" shortcut="B">
+          <button
+            type="button"
+            aria-pressed={mode === "brush" ? "true" : "false"}
+            onClick={() => setMode("brush")}
+            style={mode === "brush" ? iconBtnActiveStyle : iconBtnStyle}
+            aria-label="ブラシ"
+          >
+            <Paintbrush size={18} />
+          </button>
+        </Tooltip>
 
-        {/* Color picker — shown for modes that use selectedColor */}
+        {/* Color swatch + existing input[type=color] + HSV picker toggle */}
         {(mode === "color" || mode === "replace-all" || mode === "brush") && (
-          <input
-            type="color"
-            value={selectedColor}
-            onChange={(e) => setSelectedColor(e.target.value)}
-            style={{
-              width: 28,
-              height: 28,
-              cursor: "pointer",
-              border: `2px solid ${T.color.borderMid}`,
-              borderRadius: "50%",
-              background: "none",
-              padding: 0,
-              outline: "none",
-            }}
-            title="色を選択"
-          />
+          <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
+            {/* Color swatch circle — click to toggle HSV picker */}
+            <button
+              ref={colorSwatchRef}
+              type="button"
+              onClick={() => setHsvPickerOpen((v) => !v)}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: selectedColor,
+                border: `2px solid ${T.color.borderMid}`,
+                cursor: "pointer",
+                padding: 0,
+                flexShrink: 0,
+              }}
+              title="HSVピッカーで色を選択"
+              aria-label="HSVピッカーを開く"
+            />
+            {/* Existing native color input kept for accessibility / hex precision */}
+            <input
+              type="color"
+              value={selectedColor}
+              onChange={(e) => {
+                setSelectedColor(e.target.value);
+                setHsvPickerOpen(false);
+              }}
+              style={{
+                width: 18,
+                height: 18,
+                cursor: "pointer",
+                border: `1px solid ${T.color.borderMid}`,
+                borderRadius: T.radius.sm,
+                background: "none",
+                padding: 0,
+                outline: "none",
+                opacity: 0.7,
+              }}
+              title="色を直接入力"
+            />
+            {/* HSV picker popup */}
+            {hsvPickerOpen && (
+              <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 200 }}>
+                <HsvPicker
+                  hex={selectedColor}
+                  onChange={(h) => setSelectedColor(h)}
+                  onClose={() => setHsvPickerOpen(false)}
+                />
+              </div>
+            )}
+          </div>
         )}
 
         <div style={dividerStyle} />
@@ -1581,6 +1737,23 @@ export function MvpEditor() {
               onChange={(e) => setTolerance(Number(e.target.value))}
               style={{ width: 80 }}
               title="色許容値"
+            />
+          </>
+        )}
+
+        {/* S2: Hole-fill (closeMask) — shown when not in brush mode */}
+        {mode !== "brush" && (
+          <>
+            <span style={labelStyle}>穴埋め: {closeRadius}</span>
+            <input
+              type="range"
+              min={0}
+              max={5}
+              step={1}
+              value={closeRadius}
+              onChange={(e) => setCloseRadius(Number(e.target.value))}
+              style={{ width: 60 }}
+              title="穴埋め半径 (0=OFF, クロージング半径 1-5)"
             />
           </>
         )}
@@ -1638,24 +1811,28 @@ export function MvpEditor() {
         }}
       >
         {/* Undo / Redo / Reset */}
-        <button
-          type="button"
-          onClick={() => { regionHistory.undo(); undoBakeSnapshot(); triggerRedraw(); setStatus("元に戻しました"); }}
-          disabled={!regionHistory.canUndo}
-          style={!regionHistory.canUndo ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
-          title="元に戻す (Ctrl+Z)"
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          onClick={() => { regionHistory.redo(); redoBakeSnapshot(); triggerRedraw(); setStatus("やり直しました"); }}
-          disabled={!regionHistory.canRedo}
-          style={!regionHistory.canRedo ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
-          title="やり直し (Ctrl+Y)"
-        >
-          Redo
-        </button>
+        <Tooltip label="元に戻す" shortcut="Ctrl+Z">
+          <button
+            type="button"
+            onClick={() => { regionHistory.undo(); undoBakeSnapshot(); triggerRedraw(); setStatus("元に戻しました"); }}
+            disabled={!regionHistory.canUndo}
+            style={!regionHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            aria-label="元に戻す"
+          >
+            <Undo2 size={18} />
+          </button>
+        </Tooltip>
+        <Tooltip label="やり直し" shortcut="Ctrl+Y">
+          <button
+            type="button"
+            onClick={() => { regionHistory.redo(); redoBakeSnapshot(); triggerRedraw(); setStatus("やり直しました"); }}
+            disabled={!regionHistory.canRedo}
+            style={!regionHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            aria-label="やり直し"
+          >
+            <Redo2 size={18} />
+          </button>
+        </Tooltip>
         <button
           type="button"
           onClick={() => { regionHistory.reset([]); resetBakeHistory(); triggerRedraw(); setStatus("全リセット完了"); }}
@@ -1668,50 +1845,49 @@ export function MvpEditor() {
         <div style={dividerStyle} />
 
         {/* Zoom fit */}
-        <button
-          type="button"
-          onClick={handleFit}
-          disabled={!baseState.imageData}
-          style={!baseState.imageData ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
-          title="フィット表示 (Ctrl+0)"
-        >
-          Fit
-        </button>
+        <Tooltip label="フィット表示" shortcut="Ctrl+0">
+          <button
+            type="button"
+            onClick={handleFit}
+            disabled={!baseState.imageData}
+            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            aria-label="フィット表示"
+          >
+            <Maximize2 size={18} />
+          </button>
+        </Tooltip>
 
         <div style={dividerStyle} />
 
         {/* Export SVG */}
-        <button
-          type="button"
-          onClick={handleExportSvg}
-          disabled={!baseState.imageData}
-          style={!baseState.imageData ? { ...btnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : btnSuccessStyle}
-        >
-          SVG出力
-        </button>
+        <Tooltip label="SVG出力">
+          <button
+            type="button"
+            onClick={handleExportSvg}
+            disabled={!baseState.imageData}
+            style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
+            aria-label="SVG出力"
+          >
+            <FileCode2 size={18} />
+          </button>
+        </Tooltip>
 
         {/* Export PNG with scale selector */}
-        <button
-          type="button"
-          onClick={handleExportPng}
-          disabled={!baseState.imageData}
-          style={!baseState.imageData ? { ...btnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : btnSuccessStyle}
-        >
-          PNG出力
-        </button>
+        <Tooltip label="PNG出力">
+          <button
+            type="button"
+            onClick={handleExportPng}
+            disabled={!baseState.imageData}
+            style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
+            aria-label="PNG出力"
+          >
+            <Download size={18} />
+          </button>
+        </Tooltip>
         <select
           value={pngScale}
           onChange={(e) => setPngScale(Number(e.target.value) as 1 | 2 | 4)}
-          style={{
-            background: T.color.bgElevated,
-            color: T.color.textPrimary,
-            border: `1px solid ${T.color.borderMid}`,
-            borderRadius: T.radius.sm,
-            fontSize: T.font.label,
-            fontFamily: T.font.family,
-            padding: "3px 4px",
-            cursor: "pointer",
-          }}
+          style={selectStyle}
           title="PNG出力倍率"
         >
           <option value={1}>1x</option>
@@ -1722,15 +1898,17 @@ export function MvpEditor() {
         <div style={dividerStyle} />
 
         {/* B-1: Transparent white */}
-        <button
-          type="button"
-          onClick={handleTransparentWhite}
-          disabled={!baseState.imageData}
-          style={!baseState.imageData ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
-          title="白色 (#FFFFFF ±5) を全画素で透過にする"
-        >
-          白を透過
-        </button>
+        <Tooltip label="白を透過">
+          <button
+            type="button"
+            onClick={handleTransparentWhite}
+            disabled={!baseState.imageData}
+            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            aria-label="白を透過"
+          >
+            <Wand2 size={18} />
+          </button>
+        </Tooltip>
 
         {/* B-2: Save brand swatch */}
         {(mode === "color" || mode === "replace-all") && (
@@ -2054,23 +2232,10 @@ const btnStyle: React.CSSProperties = {
   transition: "background 120ms",
 };
 
-const btnActiveStyle: React.CSSProperties = {
-  ...btnStyle,
-  background: T.color.accent,
-  border: `1px solid ${T.color.accent}`,
-  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.35)",
-};
-
 const btnDangerStyle: React.CSSProperties = {
   ...btnStyle,
   background: T.color.danger,
   border: `1px solid ${T.color.danger}`,
-};
-
-const btnSuccessStyle: React.CSSProperties = {
-  ...btnStyle,
-  background: T.color.success,
-  border: `1px solid ${T.color.success}`,
 };
 
 const btnSubtleStyle: React.CSSProperties = {
@@ -2239,4 +2404,45 @@ const sidebarRemoveBtnStyle: React.CSSProperties = {
   padding: "1px 5px",
   flexShrink: 0,
   fontFamily: T.font.family,
+};
+
+// Icon button styles (S2: lucide-react icon buttons)
+const iconBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 30,
+  height: 30,
+  padding: 0,
+  background: T.color.bgElevated,
+  color: T.color.textPrimary,
+  border: `1px solid ${T.color.borderMid}`,
+  borderRadius: T.radius.sm,
+  cursor: "pointer",
+  transition: "background 120ms",
+  flexShrink: 0,
+};
+
+const iconBtnActiveStyle: React.CSSProperties = {
+  ...iconBtnStyle,
+  background: T.color.accent,
+  border: `1px solid ${T.color.accent}`,
+  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.35)",
+};
+
+const iconBtnSuccessStyle: React.CSSProperties = {
+  ...iconBtnStyle,
+  background: T.color.success,
+  border: `1px solid ${T.color.success}`,
+};
+
+const selectStyle: React.CSSProperties = {
+  background: T.color.bgElevated,
+  color: T.color.textPrimary,
+  border: `1px solid ${T.color.borderMid}`,
+  borderRadius: T.radius.sm,
+  fontSize: T.font.label,
+  fontFamily: T.font.family,
+  padding: "3px 4px",
+  cursor: "pointer",
 };

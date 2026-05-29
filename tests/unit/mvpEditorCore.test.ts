@@ -19,8 +19,10 @@ import {
   pickPixelColor,
   extractPaletteColors,
   smoothReplaceAll,
+  closeMask,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
+import { hsv2rgb, rgb2hsv } from "../../src/components/MvpEditor/components/HsvPicker";
 
 // jsdom does not implement ImageData. Provide a minimal polyfill.
 beforeAll(() => {
@@ -579,5 +581,117 @@ describe("smoothReplaceAll", () => {
     const originalSlice = base.data.slice();
     smoothReplaceAll(base, 0, 0, 30, [0, 255, 0], true);
     expect(base.data).toEqual(originalSlice);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S2: hsv2rgb / rgb2hsv round-trip
+// ---------------------------------------------------------------------------
+
+describe("hsv2rgb", () => {
+  it("converts pure red (h=0, s=1, v=1) to rgb(255,0,0)", () => {
+    const result = hsv2rgb(0, 1, 1);
+    expect(result.r).toBe(255);
+    expect(result.g).toBe(0);
+    expect(result.b).toBe(0);
+  });
+
+  it("converts pure green (h=120, s=1, v=1) to rgb(0,255,0)", () => {
+    const result = hsv2rgb(120, 1, 1);
+    expect(result.r).toBe(0);
+    expect(result.g).toBe(255);
+    expect(result.b).toBe(0);
+  });
+
+  it("converts pure blue (h=240, s=1, v=1) to rgb(0,0,255)", () => {
+    const result = hsv2rgb(240, 1, 1);
+    expect(result.r).toBe(0);
+    expect(result.g).toBe(0);
+    expect(result.b).toBe(255);
+  });
+
+  it("converts black (v=0) to rgb(0,0,0)", () => {
+    const result = hsv2rgb(0, 0, 0);
+    expect(result.r).toBe(0);
+    expect(result.g).toBe(0);
+    expect(result.b).toBe(0);
+  });
+
+  it("converts white (s=0, v=1) to rgb(255,255,255)", () => {
+    const result = hsv2rgb(0, 0, 1);
+    expect(result.r).toBe(255);
+    expect(result.g).toBe(255);
+    expect(result.b).toBe(255);
+  });
+});
+
+describe("rgb2hsv", () => {
+  it("converts rgb(255,0,0) to h=0, s=1, v=1", () => {
+    const result = rgb2hsv(255, 0, 0);
+    expect(result.h).toBeCloseTo(0, 1);
+    expect(result.s).toBeCloseTo(1, 3);
+    expect(result.v).toBeCloseTo(1, 3);
+  });
+
+  it("converts rgb(0,0,0) to v=0", () => {
+    const result = rgb2hsv(0, 0, 0);
+    expect(result.v).toBeCloseTo(0, 3);
+  });
+
+  it("converts rgb(255,255,255) to s=0, v=1", () => {
+    const result = rgb2hsv(255, 255, 255);
+    expect(result.s).toBeCloseTo(0, 3);
+    expect(result.v).toBeCloseTo(1, 3);
+  });
+});
+
+describe("hsv2rgb / rgb2hsv round-trip", () => {
+  it("round-trips a saturated color without precision loss", () => {
+    const original = { h: 200, s: 0.8, v: 0.9 };
+    const { r, g, b } = hsv2rgb(original.h, original.s, original.v);
+    const back = rgb2hsv(r, g, b);
+    expect(back.h).toBeCloseTo(original.h, 0);
+    expect(back.s).toBeCloseTo(original.s, 1);
+    expect(back.v).toBeCloseTo(original.v, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S2: closeMask (hole-fill morphological closing)
+// ---------------------------------------------------------------------------
+
+describe("closeMask", () => {
+  it("returns input unchanged when radius=0", () => {
+    const pixels = [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+    const result = closeMask(pixels, 4, 4, 0);
+    expect(result).toEqual(pixels);
+  });
+
+  it("returns empty array unchanged when pixels is empty", () => {
+    const result = closeMask([], 4, 4, 1);
+    expect(result).toEqual([]);
+  });
+
+  it("fills a 1-pixel hole surrounded by selected pixels", () => {
+    // 3x3 image: all selected except center (1,1)
+    const pixels: { x: number; y: number }[] = [];
+    for (let y = 0; y < 3; y++) {
+      for (let x = 0; x < 3; x++) {
+        if (!(x === 1 && y === 1)) pixels.push({ x, y });
+      }
+    }
+    // radius=1 dilation should fill the hole, then erosion keeps the interior
+    const result = closeMask(pixels, 3, 3, 1);
+    const resultSet = new Set(result.map((p) => `${p.x},${p.y}`));
+    // Center pixel (1,1) should now be included
+    expect(resultSet.has("1,1")).toBe(true);
+  });
+
+  it("does not expand a filled region outward after closing", () => {
+    // Single center pixel of a 5x5 image — closing should not grow it
+    const pixels = [{ x: 2, y: 2 }];
+    const result = closeMask(pixels, 5, 5, 1);
+    // After dilate then erode, isolated single pixel shrinks to nothing
+    expect(result.length).toBeLessThanOrEqual(1);
   });
 });

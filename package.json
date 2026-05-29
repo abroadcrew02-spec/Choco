@@ -21,6 +21,7 @@
     "@tauri-apps/plugin-updater": "^2",
     "comlink": "^4.4.1",
     "konva": "^9.3.16",
+    "lucide-react": "^1.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-konva": "^18.2.10",
