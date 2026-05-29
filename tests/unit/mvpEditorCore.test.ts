@@ -18,6 +18,7 @@ import {
   replaceAllSelect,
   pickPixelColor,
   extractPaletteColors,
+  smoothReplaceAll,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 
@@ -463,5 +464,120 @@ describe("extractPaletteColors", () => {
     const img = new ImageData(data, 4, 4);
     const palette = extractPaletteColors(img, 8);
     expect(palette).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// compositeRegions with bakeLayer (S1: bake layer compositing)
+// ---------------------------------------------------------------------------
+
+describe("compositeRegions with bakeLayer", () => {
+  it("bakeLayer=null produces same result as no bakeLayer (backward compat)", () => {
+    const base = makeSolidImageData(2, 2, 100, 150, 200);
+    const r1: PaintRegion = { id: "r1", pixels: [{ x: 0, y: 0 }], color: "#ff0000", transparent: false };
+    const withNull = compositeRegions(base, [r1], null);
+    const withoutArg = compositeRegions(base, [r1]);
+    expect(withNull.data).toEqual(withoutArg.data);
+  });
+
+  it("fully opaque bakeLayer pixel overwrites composited region pixel", () => {
+    const base = makeSolidImageData(2, 2, 0, 0, 0);
+    const bakeData = new Uint8ClampedArray(2 * 2 * 4);
+    // pixel (0,0) fully opaque blue
+    bakeData[0] = 0; bakeData[1] = 0; bakeData[2] = 255; bakeData[3] = 255;
+    const bake = new ImageData(bakeData, 2, 2);
+    const result = compositeRegions(base, [], bake);
+    expect(result.data[0]).toBe(0);   // R
+    expect(result.data[1]).toBe(0);   // G
+    expect(result.data[2]).toBe(255); // B
+    expect(result.data[3]).toBe(255); // A
+  });
+
+  it("transparent bakeLayer pixels do not affect composited result", () => {
+    const base = makeSolidImageData(2, 2, 100, 150, 200);
+    // all-transparent bakeLayer
+    const bakeData = new Uint8ClampedArray(2 * 2 * 4);
+    const bake = new ImageData(bakeData, 2, 2);
+    const result = compositeRegions(base, [], bake);
+    expect(result.data[0]).toBe(100);
+    expect(result.data[1]).toBe(150);
+    expect(result.data[2]).toBe(200);
+  });
+
+  it("bakeLayer is composited on top of regions", () => {
+    const base = makeSolidImageData(2, 2, 0, 0, 0);
+    // region paints (0,0) red
+    const region: PaintRegion = { id: "r1", pixels: [{ x: 0, y: 0 }], color: "#ff0000", transparent: false };
+    // bakeLayer paints (0,0) green (fully opaque) — should win
+    const bakeData = new Uint8ClampedArray(2 * 2 * 4);
+    bakeData[0] = 0; bakeData[1] = 255; bakeData[2] = 0; bakeData[3] = 255;
+    const bake = new ImageData(bakeData, 2, 2);
+    const result = compositeRegions(base, [region], bake);
+    expect(result.data[0]).toBe(0);   // R overwritten by bake
+    expect(result.data[1]).toBe(255); // G from bake
+    expect(result.data[2]).toBe(0);   // B
+  });
+});
+
+// ---------------------------------------------------------------------------
+// smoothReplaceAll (S1: smooth color replacement)
+// ---------------------------------------------------------------------------
+
+describe("smoothReplaceAll", () => {
+  it("hard replace: replaces all matching pixels within tolerance exactly", () => {
+    const base = makeSolidImageData(4, 4, 200, 100, 50);
+    const result = smoothReplaceAll(base, 0, 0, 0, [0, 255, 0], false);
+    // All pixels match exactly (tolerance=0), should all be replaced
+    for (let i = 0; i < 16; i++) {
+      expect(result.data[i * 4]).toBe(0);
+      expect(result.data[i * 4 + 1]).toBe(255);
+      expect(result.data[i * 4 + 2]).toBe(0);
+    }
+  });
+
+  it("hard replace: does not replace pixels outside tolerance", () => {
+    // 2x1: left=red, right=blue
+    const data = new Uint8ClampedArray(2 * 1 * 4);
+    data[0] = 255; data[1] = 0; data[2] = 0; data[3] = 255;
+    data[4] = 0;   data[5] = 0; data[6] = 255; data[7] = 255;
+    const img = new ImageData(data, 2, 1);
+    const result = smoothReplaceAll(img, 0, 0, 0, [0, 255, 0], false);
+    // Left pixel replaced
+    expect(result.data[0]).toBe(0);
+    expect(result.data[1]).toBe(255);
+    // Right pixel untouched
+    expect(result.data[4]).toBe(0);
+    expect(result.data[5]).toBe(0);
+    expect(result.data[6]).toBe(255);
+  });
+
+  it("smooth replace: center pixel (dist=0) gets blend factor 1.0 and is fully replaced", () => {
+    const base = makeSolidImageData(1, 1, 200, 100, 50);
+    const result = smoothReplaceAll(base, 0, 0, 30, [0, 255, 0], true);
+    // dist2=0, a=1-0/(30*2)=1 → fully replaced
+    expect(result.data[0]).toBe(0);
+    expect(result.data[1]).toBe(255);
+    expect(result.data[2]).toBe(0);
+  });
+
+  it("smooth replace: pixel at boundary gets partial blend", () => {
+    // Two pixels: (0,0)=200,100,50  (1,0)=210,100,50 — dist=10 < tol=30
+    const data = new Uint8ClampedArray(2 * 1 * 4);
+    data[0] = 200; data[1] = 100; data[2] = 50; data[3] = 255;
+    data[4] = 210; data[5] = 100; data[6] = 50; data[7] = 255;
+    const img = new ImageData(data, 2, 1);
+    const result = smoothReplaceAll(img, 0, 0, 30, [0, 255, 0], true);
+    // (1,0) should be partially blended (not fully replaced)
+    // a = 1 - 10 / 60 ≈ 0.833, so R should be between 0 and 210
+    expect(result.data[4]).toBeGreaterThan(0);
+    expect(result.data[4]).toBeLessThan(210);
+    expect(result.data[5]).toBeGreaterThan(100); // blended toward 255
+  });
+
+  it("does not mutate the input ImageData", () => {
+    const base = makeSolidImageData(2, 2, 200, 100, 50);
+    const originalSlice = base.data.slice();
+    smoothReplaceAll(base, 0, 0, 30, [0, 255, 0], true);
+    expect(base.data).toEqual(originalSlice);
   });
 });

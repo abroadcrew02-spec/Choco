@@ -19,7 +19,7 @@ interface BaseState {
   naturalHeight: number;
 }
 
-type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all";
+type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all" | "brush";
 
 // Brand swatches stored in LocalStorage
 const BRAND_SWATCHES_KEY = "choco_brand_swatches";
@@ -242,10 +242,16 @@ export function extractPaletteColors(
 /**
  * Applies all paint regions to the base imageData and returns composited ImageData.
  * No layer opacity/visibility — regions are directly applied on top of base.
+ *
+ * If bakeLayer is provided, it is alpha-composited on top of the region result.
+ * bakeLayer pixels with alpha=0 are transparent (no-op). This is used for
+ * direct pixel painting (brush tool) without destroying the non-destructive
+ * PaintRegion history.
  */
 export function compositeRegions(
   baseImageData: ImageData,
-  regions: PaintRegion[]
+  regions: PaintRegion[],
+  bakeLayer?: ImageData | null
 ): ImageData {
   const { width, height } = baseImageData;
   const resultData = new Uint8ClampedArray(baseImageData.data);
@@ -268,7 +274,91 @@ export function compositeRegions(
     }
   }
 
+  // Alpha-composite bakeLayer on top (straight-alpha blending, bakeLayer is src)
+  if (bakeLayer && bakeLayer.width === width && bakeLayer.height === height) {
+    const bakeData = bakeLayer.data;
+    for (let i = 0; i < width * height; i++) {
+      const k = i * 4;
+      const bakeA = bakeData[k + 3];
+      if (bakeA === 0) continue;
+      if (bakeA === 255) {
+        resultData[k] = bakeData[k];
+        resultData[k + 1] = bakeData[k + 1];
+        resultData[k + 2] = bakeData[k + 2];
+        resultData[k + 3] = 255;
+      } else {
+        const alpha = bakeA / 255;
+        const invAlpha = 1 - alpha;
+        resultData[k] = Math.round(resultData[k] * invAlpha + bakeData[k] * alpha);
+        resultData[k + 1] = Math.round(resultData[k + 1] * invAlpha + bakeData[k + 1] * alpha);
+        resultData[k + 2] = Math.round(resultData[k + 2] * invAlpha + bakeData[k + 2] * alpha);
+        resultData[k + 3] = Math.min(255, resultData[k + 3] + bakeA);
+      }
+    }
+  }
+
   return new ImageData(resultData, width, height);
+}
+
+/**
+ * Selects all pixels globally within tolerance of the clicked pixel's color,
+ * then applies smooth or hard color replacement.
+ *
+ * Returns a new ImageData with replaced pixels (does not mutate input).
+ *
+ * smoothReplace=true: blend factor a = 1 - sqrt(dist) / (repTol * 2)
+ *   produces a soft gradient at the selection boundary.
+ * smoothReplace=false: hard replacement for all pixels within tolerance.
+ */
+export function smoothReplaceAll(
+  imageData: ImageData,
+  startX: number,
+  startY: number,
+  tolerance: number,
+  newColor: [number, number, number],
+  smoothReplace: boolean
+): ImageData {
+  const { width, height, data } = imageData;
+  const startIdx = (startY * width + startX) * 4;
+  const r0 = data[startIdx];
+  const g0 = data[startIdx + 1];
+  const b0 = data[startIdx + 2];
+  const [fr, fg, fb] = newColor;
+
+  const resultData = new Uint8ClampedArray(data);
+  const t2 = tolerance * tolerance * 4;
+  const denom = tolerance * 2;
+
+  for (let i = 0; i < width * height; i++) {
+    const k = i * 4;
+    const dr = resultData[k] - r0;
+    const dg = resultData[k + 1] - g0;
+    const db = resultData[k + 2] - b0;
+    const dist2 = dr * dr + dg * dg + db * db;
+    if (dist2 > t2) continue;
+
+    if (!smoothReplace) {
+      resultData[k] = fr;
+      resultData[k + 1] = fg;
+      resultData[k + 2] = fb;
+    } else {
+      const a = denom > 0 ? Math.max(0, Math.min(1, 1 - Math.sqrt(dist2) / denom)) : 1;
+      if (a > 0) {
+        resultData[k] = Math.round(resultData[k] * (1 - a) + fr * a);
+        resultData[k + 1] = Math.round(resultData[k + 1] * (1 - a) + fg * a);
+        resultData[k + 2] = Math.round(resultData[k + 2] * (1 - a) + fb * a);
+      }
+    }
+  }
+
+  return new ImageData(resultData, width, height);
+}
+
+/**
+ * Returns a deep copy of the given ImageData.
+ */
+function copyImageData(src: ImageData): ImageData {
+  return new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
 }
 
 /**
@@ -554,6 +644,8 @@ export function isAcceptedImageFile(file: { type: string; name: string }): boole
 // Component
 // ---------------------------------------------------------------------------
 
+const DEFAULT_BRUSH_SIZE = 15;
+
 export function MvpEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -568,9 +660,24 @@ export function MvpEditor() {
   const regionHistory = useUndoRedo<PaintRegion[]>([]);
   const regions = regionHistory.current;
 
+  // bakeLayer: transparent ImageData that accumulates direct pixel painting (brush).
+  // Stored as a ref to avoid re-render on every stroke tick.
+  // bakeLayerHistory mirrors regionHistory for Undo/Redo synchronization.
+  const bakeLayerRef = useRef<ImageData | null>(null);
+  const bakeLayerHistoryRef = useRef<(ImageData | null)[]>([null]);
+  const bakeLayerHistoryIndexRef = useRef<number>(0);
+
+  // Brush stroke state
+  const brushDrawingRef = useRef<boolean>(false);
+  const brushLastPosRef = useRef<{ x: number; y: number } | null>(null);
+  // Offscreen canvas used for current stroke accumulation
+  const strokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   const [mode, setMode] = useState<EditorMode>("color");
   const [selectedColor, setSelectedColor] = useState(DEFAULT_COLOR);
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
+  const [brushSize, setBrushSize] = useState(DEFAULT_BRUSH_SIZE);
+  const [smoothReplace, setSmoothReplace] = useState(false);
   const [status, setStatus] = useState("画像を読み込んでください");
   const [spacePressed, setSpacePressed] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<string | null>(null);
@@ -589,8 +696,59 @@ export function MvpEditor() {
 
   const zoom = useZoomPan(spacePressed);
 
+  // Trigger an explicit canvas redraw without changing React state for regions.
+  // Used by brush strokes (which mutate bakeLayerRef directly) and Undo/Redo.
+  const [redrawTick, setRedrawTick] = useState(0);
+  const triggerRedraw = useCallback(() => {
+    setRedrawTick((n) => n + 1);
+  }, []);
+
   // ---------------------------------------------------------------------------
-  // Keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+0, Space, I, R
+  // bakeLayer helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Pushes the current bakeLayer into bakeLayerHistory in sync with regionHistory.
+   * Call this whenever regionHistory.push() is called.
+   */
+  const pushBakeSnapshot = useCallback((snapshot: ImageData | null) => {
+    const HISTORY_LIMIT = 10;
+    const idx = bakeLayerHistoryIndexRef.current;
+    const hist = bakeLayerHistoryRef.current;
+    const truncated = hist.slice(0, idx + 1);
+    const next = [...truncated, snapshot ? copyImageData(snapshot) : null];
+    const sliced = next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+    bakeLayerHistoryRef.current = sliced;
+    bakeLayerHistoryIndexRef.current = sliced.length - 1;
+  }, []);
+
+  const undoBakeSnapshot = useCallback(() => {
+    const idx = bakeLayerHistoryIndexRef.current;
+    if (idx > 0) {
+      bakeLayerHistoryIndexRef.current = idx - 1;
+      const snapshot = bakeLayerHistoryRef.current[idx - 1];
+      bakeLayerRef.current = snapshot ? copyImageData(snapshot) : null;
+    }
+  }, []);
+
+  const redoBakeSnapshot = useCallback(() => {
+    const idx = bakeLayerHistoryIndexRef.current;
+    const hist = bakeLayerHistoryRef.current;
+    if (idx < hist.length - 1) {
+      bakeLayerHistoryIndexRef.current = idx + 1;
+      const snapshot = hist[idx + 1];
+      bakeLayerRef.current = snapshot ? copyImageData(snapshot) : null;
+    }
+  }, []);
+
+  const resetBakeHistory = useCallback(() => {
+    bakeLayerRef.current = null;
+    bakeLayerHistoryRef.current = [null];
+    bakeLayerHistoryIndexRef.current = 0;
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+0, Space, I, R, B
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -603,12 +761,16 @@ export function MvpEditor() {
       if (e.ctrlKey && e.key === "z") {
         e.preventDefault();
         regionHistory.undo();
+        undoBakeSnapshot();
+        triggerRedraw();
         setStatus("元に戻しました");
         return;
       }
       if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) {
         e.preventDefault();
         regionHistory.redo();
+        redoBakeSnapshot();
+        triggerRedraw();
         setStatus("やり直しました");
         return;
       }
@@ -629,6 +791,11 @@ export function MvpEditor() {
       if (e.ctrlKey && e.key === "v") {
         e.preventDefault();
         handleClipboardPaste();
+        return;
+      }
+      // B = brush
+      if (!e.ctrlKey && !e.altKey && e.key === "b") {
+        setMode("brush");
         return;
       }
       // I = eyedropper
@@ -656,7 +823,7 @@ export function MvpEditor() {
       window.removeEventListener("keyup", handleKeyUp);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionHistory, baseState.naturalWidth, baseState.naturalHeight, zoom]);
+  }, [regionHistory, baseState.naturalWidth, baseState.naturalHeight, zoom, undoBakeSnapshot, redoBakeSnapshot, triggerRedraw]);
 
   // ---------------------------------------------------------------------------
   // Canvas redraw
@@ -671,10 +838,12 @@ export function MvpEditor() {
       // B-3: before/after comparison — show raw base image without regions
       ctx.putImageData(baseState.imageData, 0, 0);
     } else {
-      const composited = compositeRegions(baseState.imageData, regions);
+      const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
       ctx.putImageData(composited, 0, 0);
     }
-  }, [baseState, regions, comparing]);
+  // redrawTick is intentionally included so brush strokes (ref mutations) trigger redraws
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseState, regions, comparing, redrawTick]);
 
   // ---------------------------------------------------------------------------
   // Image loading
@@ -711,6 +880,7 @@ export function MvpEditor() {
             URL.revokeObjectURL(url);
             setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
             regionHistory.reset([]);
+            resetBakeHistory();
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`画像読み込み完了: ${w}x${h}`);
             // B-1: auto-fit on load
@@ -744,6 +914,7 @@ export function MvpEditor() {
         URL.revokeObjectURL(url);
         setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
         regionHistory.reset([]);
+        resetBakeHistory();
         setPalette(extractPaletteColors(imageData, 8));
         setStatus(`画像読み込み完了: ${w}x${h}`);
         // B-1: auto-fit on load
@@ -758,7 +929,7 @@ export function MvpEditor() {
       };
       img.src = url;
     },
-    [regionHistory, zoom]
+    [regionHistory, zoom, resetBakeHistory]
   );
 
   // C-2 fix: accept by MIME type OR file extension fallback
@@ -835,6 +1006,8 @@ export function MvpEditor() {
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (spacePressed) return;
       if (!baseState.imageData) return;
+      // brush mode uses mousedown/mousemove/mouseup, not click
+      if (mode === "brush") return;
       const coords = getCanvasCoords(e);
       if (!coords) return;
       const { x, y } = coords;
@@ -850,8 +1023,35 @@ export function MvpEditor() {
         return;
       }
 
-      // Replace-all mode: select all pixels of same color globally
+      // Replace-all mode: smooth or hard global color replacement
       if (mode === "replace-all") {
+        if (smoothReplace) {
+          // smoothReplace modifies pixels directly; store result in bakeLayer
+          const newColor = hexToRgb(selectedColor);
+          const newImageData = smoothReplaceAll(
+            compositeRegions(baseState.imageData, regions, bakeLayerRef.current),
+            x, y, tolerance, newColor, true
+          );
+          // Store the result as an updated bakeLayer that encodes the full visual state.
+          // Strategy: bake current regions+bake into a new bakeLayer snapshot,
+          // then apply smooth replace on top of it.
+          // Since smoothReplace produces a new ImageData (base-relative), we store
+          // it as a "full bake" by diffing against base.
+          const w = baseState.naturalWidth;
+          const h = baseState.naturalHeight;
+          const newBake = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
+          const srcData = newImageData.data;
+          const bakeData = newBake.data;
+          for (let i = 0; i < w * h * 4; i++) {
+            bakeData[i] = srcData[i];
+          }
+          bakeLayerRef.current = newBake;
+          pushBakeSnapshot(newBake);
+          regionHistory.push([...regions]);
+          triggerRedraw();
+          setStatus(`滑らか置換 → ${selectedColor}`);
+          return;
+        }
         const pixels = replaceAllSelect(baseState.imageData, x, y, tolerance);
         if (pixels.length === 0) return;
         const newRegion: PaintRegion = {
@@ -860,6 +1060,7 @@ export function MvpEditor() {
           color: selectedColor,
           transparent: false,
         };
+        pushBakeSnapshot(bakeLayerRef.current);
         regionHistory.push([...regions, newRegion]);
         setStatus(`一括置換: ${pixels.length}px → ${selectedColor}`);
         return;
@@ -880,6 +1081,7 @@ export function MvpEditor() {
         transparent: mode === "transparent",
       };
 
+      pushBakeSnapshot(bakeLayerRef.current);
       regionHistory.push([...regions, newRegion]);
       setStatus(
         mode === "transparent"
@@ -887,8 +1089,128 @@ export function MvpEditor() {
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, pushBakeSnapshot, triggerRedraw]
   );
+
+  // ---------------------------------------------------------------------------
+  // Brush stroke handlers
+  // ---------------------------------------------------------------------------
+
+  const handleBrushMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (mode !== "brush" || spacePressed || !baseState.imageData) return;
+      const coords = getCanvasCoords(e);
+      if (!coords) return;
+      const { x, y } = coords;
+      const w = baseState.naturalWidth;
+      const h = baseState.naturalHeight;
+
+      // Initialize bakeLayer if not yet created
+      if (!bakeLayerRef.current) {
+        bakeLayerRef.current = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
+      }
+
+      // Initialize stroke offscreen canvas
+      if (!strokeCanvasRef.current ||
+          strokeCanvasRef.current.width !== w ||
+          strokeCanvasRef.current.height !== h) {
+        const sc = document.createElement("canvas");
+        sc.width = w;
+        sc.height = h;
+        strokeCanvasRef.current = sc;
+      }
+      const sc = strokeCanvasRef.current;
+      const sctx = sc.getContext("2d")!;
+      sctx.clearRect(0, 0, w, h);
+
+      brushDrawingRef.current = true;
+      brushLastPosRef.current = { x, y };
+
+      // Draw initial dot
+      sctx.fillStyle = selectedColor;
+      sctx.beginPath();
+      sctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+      sctx.fill();
+
+      // Merge stroke canvas into bakeLayer
+      mergeBrushStroke(w, h);
+      triggerRedraw();
+    },
+    [mode, spacePressed, baseState, getCanvasCoords, selectedColor, brushSize, triggerRedraw]
+  );
+
+  const handleBrushMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!brushDrawingRef.current || mode !== "brush" || !baseState.imageData) return;
+      const coords = getCanvasCoords(e);
+      if (!coords) return;
+      const { x, y } = coords;
+      const last = brushLastPosRef.current;
+      if (!last) return;
+
+      const sc = strokeCanvasRef.current;
+      if (!sc) return;
+      const sctx = sc.getContext("2d")!;
+
+      // Draw line from last to current position (HTML prototype: line method)
+      sctx.strokeStyle = selectedColor;
+      sctx.lineWidth = brushSize;
+      sctx.lineCap = "round";
+      sctx.beginPath();
+      sctx.moveTo(last.x, last.y);
+      sctx.lineTo(x, y);
+      sctx.stroke();
+
+      brushLastPosRef.current = { x, y };
+      mergeBrushStroke(baseState.naturalWidth, baseState.naturalHeight);
+      triggerRedraw();
+    },
+    [mode, baseState, getCanvasCoords, selectedColor, brushSize, triggerRedraw]
+  );
+
+  const handleBrushMouseUp = useCallback(() => {
+    if (!brushDrawingRef.current) return;
+    brushDrawingRef.current = false;
+    brushLastPosRef.current = null;
+
+    // Commit stroke to undo history
+    pushBakeSnapshot(bakeLayerRef.current);
+    regionHistory.push([...regions]);
+    setStatus(`ブラシ描画`);
+  }, [pushBakeSnapshot, regionHistory, regions]);
+
+  /**
+   * Merges the current stroke offscreen canvas into bakeLayerRef.
+   * Called on every tick during a brush stroke.
+   */
+  function mergeBrushStroke(w: number, h: number) {
+    const sc = strokeCanvasRef.current;
+    if (!sc || !bakeLayerRef.current) return;
+    const sctx = sc.getContext("2d")!;
+    const strokeData = sctx.getImageData(0, 0, w, h);
+    const bakeData = bakeLayerRef.current.data;
+    const sd = strokeData.data;
+    for (let i = 0; i < w * h; i++) {
+      const k = i * 4;
+      const sa = sd[k + 3];
+      if (sa === 0) continue;
+      if (sa === 255) {
+        bakeData[k] = sd[k];
+        bakeData[k + 1] = sd[k + 1];
+        bakeData[k + 2] = sd[k + 2];
+        bakeData[k + 3] = 255;
+      } else {
+        const alpha = sa / 255;
+        const inv = 1 - alpha;
+        bakeData[k] = Math.round(bakeData[k] * inv + sd[k] * alpha);
+        bakeData[k + 1] = Math.round(bakeData[k + 1] * inv + sd[k + 1] * alpha);
+        bakeData[k + 2] = Math.round(bakeData[k + 2] * inv + sd[k + 2] * alpha);
+        bakeData[k + 3] = Math.min(255, bakeData[k + 3] + sa);
+      }
+    }
+    // Clear stroke canvas after merging so next tick only adds new pixels
+    sctx.clearRect(0, 0, w, h);
+  }
 
   // ---------------------------------------------------------------------------
   // Remove a specific region by id (mapping table undo)
@@ -897,10 +1219,11 @@ export function MvpEditor() {
   const handleRemoveRegion = useCallback(
     (id: string) => {
       const next = regions.filter((r) => r.id !== id);
+      pushBakeSnapshot(bakeLayerRef.current);
       regionHistory.push(next);
       setStatus("リージョンを削除しました");
     },
-    [regions, regionHistory]
+    [regions, regionHistory, pushBakeSnapshot]
   );
 
   // ---------------------------------------------------------------------------
@@ -931,6 +1254,7 @@ export function MvpEditor() {
             URL.revokeObjectURL(url);
             setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
             regionHistory.reset([]);
+            resetBakeHistory();
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`クリップボードから読み込み: ${w}x${h}`);
             // auto-fit on paste
@@ -949,7 +1273,7 @@ export function MvpEditor() {
       }
       setStatus("クリップボードに画像がありません");
     }).catch(() => setStatus("クリップボードへのアクセスが拒否されました"));
-  }, [regionHistory, zoom]);
+  }, [regionHistory, zoom, resetBakeHistory]);
 
   // ---------------------------------------------------------------------------
   // B-1: Transparent white
@@ -968,9 +1292,10 @@ export function MvpEditor() {
       color: "#ffffff",
       transparent: true,
     };
+    pushBakeSnapshot(bakeLayerRef.current);
     regionHistory.push([...regions, newRegion]);
     setStatus(`白を透過: ${pixels.length}px`);
-  }, [baseState.imageData, regions, regionHistory]);
+  }, [baseState.imageData, regions, regionHistory, pushBakeSnapshot]);
 
   // ---------------------------------------------------------------------------
   // B-2: Save brand swatch
@@ -1018,7 +1343,7 @@ export function MvpEditor() {
 
   const handleExportPng = useCallback(() => {
     if (!baseState.imageData) return;
-    const composited = compositeRegions(baseState.imageData, regions);
+    const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
     const url = imageDataToPngDataUrl(composited, pngScale);
     const a = document.createElement("a");
     a.href = url;
@@ -1054,9 +1379,11 @@ export function MvpEditor() {
       ? "cell"
       : mode === "replace-all"
         ? "crosshair"
-        : mode === "color" || mode === "transparent"
-          ? baseState.imageData ? "crosshair" : "default"
-          : "default";
+        : mode === "brush"
+          ? "crosshair"
+          : mode === "color" || mode === "transparent"
+            ? baseState.imageData ? "crosshair" : "default"
+            : "default";
 
   const zoomPercent = Math.round(zoom.scale * 100);
 
@@ -1068,6 +1395,7 @@ export function MvpEditor() {
     mode === "color" ? "色変更 / Color" :
     mode === "transparent" ? "透過 / Transparent" :
     mode === "eyedropper" ? "スポイト / Eyedropper" :
+    mode === "brush" ? "ブラシ / Brush" :
     "一括置換 / Replace-All";
 
   // ---------------------------------------------------------------------------
@@ -1154,9 +1482,18 @@ export function MvpEditor() {
         >
           一括置換
         </button>
+        <button
+          type="button"
+          aria-pressed={mode === "brush" ? "true" : "false"}
+          onClick={() => setMode("brush")}
+          style={{ ...btnStyle, background: mode === "brush" ? "#cc3300" : "#444" }}
+          title="ブラシ (B)"
+        >
+          ブラシ
+        </button>
 
-        {/* Color picker */}
-        {(mode === "color" || mode === "replace-all") && (
+        {/* Color picker — shown for modes that use selectedColor */}
+        {(mode === "color" || mode === "replace-all" || mode === "brush") && (
           <input
             type="color"
             value={selectedColor}
@@ -1168,38 +1505,76 @@ export function MvpEditor() {
 
         <div style={dividerStyle} />
 
-        {/* Tolerance */}
-        <span style={labelStyle}>許容値: {tolerance}</span>
-        <input
-          type="range"
-          min={0}
-          max={128}
-          value={tolerance}
-          onChange={(e) => setTolerance(Number(e.target.value))}
-          style={{ width: 80 }}
-        />
+        {/* Brush size — only shown in brush mode */}
+        {mode === "brush" && (
+          <>
+            <span style={labelStyle}>太さ: {brushSize}</span>
+            <input
+              type="range"
+              min={1}
+              max={100}
+              value={brushSize}
+              onChange={(e) => setBrushSize(Number(e.target.value))}
+              style={{ width: 80 }}
+              title="ブラシサイズ (1-100px)"
+            />
+          </>
+        )}
 
-        {/* B-2: antialias boundary inclusion */}
-        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
-          <input
-            type="checkbox"
-            checked={includeAntialias}
-            onChange={(e) => setIncludeAntialias(e.target.checked)}
-            style={{ cursor: "pointer" }}
-          />
-          境界含める
-        </label>
+        {/* Tolerance — not shown in brush mode */}
+        {mode !== "brush" && (
+          <>
+            <span style={labelStyle}>許容値: {tolerance}</span>
+            <input
+              type="range"
+              min={0}
+              max={128}
+              value={tolerance}
+              onChange={(e) => setTolerance(Number(e.target.value))}
+              style={{ width: 80 }}
+              title="色許容値"
+            />
+          </>
+        )}
 
-        {/* B-3: connectivity toggle */}
-        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
-          <input
-            type="checkbox"
-            checked={connectivity === 8}
-            onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
-            style={{ cursor: "pointer" }}
-          />
-          8近傍
-        </label>
+        {/* Smooth replace checkbox — shown only in replace-all mode */}
+        {mode === "replace-all" && (
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="境界を滑らかにブレンドして置換">
+            <input
+              type="checkbox"
+              checked={smoothReplace}
+              onChange={(e) => setSmoothReplace(e.target.checked)}
+              style={{ cursor: "pointer" }}
+            />
+            滑らかに置換
+          </label>
+        )}
+
+        {/* B-2: antialias boundary inclusion — not shown in brush/replace-all mode */}
+        {mode !== "brush" && mode !== "replace-all" && (
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
+            <input
+              type="checkbox"
+              checked={includeAntialias}
+              onChange={(e) => setIncludeAntialias(e.target.checked)}
+              style={{ cursor: "pointer" }}
+            />
+            境界含める
+          </label>
+        )}
+
+        {/* B-3: connectivity toggle — not shown in brush/replace-all mode */}
+        {mode !== "brush" && mode !== "replace-all" && (
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
+            <input
+              type="checkbox"
+              checked={connectivity === 8}
+              onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
+              style={{ cursor: "pointer" }}
+            />
+            8近傍
+          </label>
+        )}
       </div>
 
       {/* Toolbar row 2 */}
@@ -1217,7 +1592,7 @@ export function MvpEditor() {
         {/* Undo / Redo / Reset */}
         <button
           type="button"
-          onClick={() => { regionHistory.undo(); setStatus("元に戻しました"); }}
+          onClick={() => { regionHistory.undo(); undoBakeSnapshot(); triggerRedraw(); setStatus("元に戻しました"); }}
           disabled={!regionHistory.canUndo}
           style={btnStyle}
           title="元に戻す (Ctrl+Z)"
@@ -1226,7 +1601,7 @@ export function MvpEditor() {
         </button>
         <button
           type="button"
-          onClick={() => { regionHistory.redo(); setStatus("やり直しました"); }}
+          onClick={() => { regionHistory.redo(); redoBakeSnapshot(); triggerRedraw(); setStatus("やり直しました"); }}
           disabled={!regionHistory.canRedo}
           style={btnStyle}
           title="やり直し (Ctrl+Y)"
@@ -1235,7 +1610,7 @@ export function MvpEditor() {
         </button>
         <button
           type="button"
-          onClick={() => { regionHistory.reset([]); setStatus("全リセット完了"); }}
+          onClick={() => { regionHistory.reset([]); resetBakeHistory(); triggerRedraw(); setStatus("全リセット完了"); }}
           disabled={regions.length === 0}
           style={{ ...btnStyle, background: "#662222" }}
         >
@@ -1510,8 +1885,10 @@ export function MvpEditor() {
                 width={baseState.naturalWidth}
                 height={baseState.naturalHeight}
                 onClick={handleCanvasClick}
-                onMouseMove={handleCanvasMouseMove}
-                onMouseLeave={handleCanvasMouseLeave}
+                onMouseDown={handleBrushMouseDown}
+                onMouseMove={(e) => { handleCanvasMouseMove(e); handleBrushMouseMove(e); }}
+                onMouseUp={handleBrushMouseUp}
+                onMouseLeave={() => { handleCanvasMouseLeave(); handleBrushMouseUp(); }}
                 style={{ cursor: canvasCursor, display: "block" }}
               />
             </div>
