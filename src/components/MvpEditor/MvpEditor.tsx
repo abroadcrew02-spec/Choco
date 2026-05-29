@@ -17,6 +17,8 @@ import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
 import { HsvPicker } from "./components/HsvPicker";
 import { Tooltip } from "./components/Tooltip";
+import { Toast, type ToastMessage } from "./components/Toast";
+import { ShortcutHelp } from "./components/ShortcutHelp";
 
 // ---------------------------------------------------------------------------
 // Design tokens — Professional Dark Studio
@@ -79,6 +81,9 @@ type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all" | "brus
 // Brand swatches stored in LocalStorage
 const BRAND_SWATCHES_KEY = "choco_brand_swatches";
 const BRAND_SWATCHES_MAX = 8;
+
+// Recent colors — in-memory only, max 8
+const RECENT_COLORS_MAX = 8;
 
 function loadBrandSwatches(): string[] {
   try {
@@ -710,6 +715,125 @@ export function closeMask(
 }
 
 /**
+ * 2-pass box blur approximation of a Gaussian blur on a Float32 mask.
+ * Ported from logo_recolor_4.html blurMask().
+ *
+ * @param src    - Input mask as Float32Array or Uint8Array (values 0–1 or 0–255 normalized)
+ * @param w      - Image width
+ * @param h      - Image height
+ * @param r      - Blur radius in pixels (0 = no-op)
+ * @returns New Float32Array with blurred values in [0, 1]
+ */
+export function blurMask(
+  src: Float32Array | Uint8Array,
+  w: number,
+  h: number,
+  r: number
+): Float32Array {
+  if (r <= 0) {
+    const out = new Float32Array(w * h);
+    for (let i = 0; i < src.length; i++) out[i] = src[i];
+    return out;
+  }
+
+  function singlePass(input: Float32Array): Float32Array {
+    const tmp = new Float32Array(w * h);
+    const dst = new Float32Array(w * h);
+    // Horizontal pass
+    for (let y = 0; y < h; y++) {
+      let sum = 0;
+      for (let x = 0; x < r; x++) sum += input[y * w + x];
+      for (let x = 0; x < w; x++) {
+        if (x + r < w) sum += input[y * w + x + r];
+        if (x - r - 1 >= 0) sum -= input[y * w + x - r - 1];
+        tmp[y * w + x] = sum / (Math.min(x + r + 1, w) - Math.max(0, x - r));
+      }
+    }
+    // Vertical pass
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (let y = 0; y < r; y++) sum += tmp[y * w + x];
+      for (let y = 0; y < h; y++) {
+        if (y + r < h) sum += tmp[(y + r) * w + x];
+        if (y - r - 1 >= 0) sum -= tmp[(y - r - 1) * w + x];
+        dst[y * w + x] = sum / (Math.min(y + r + 1, h) - Math.max(0, y - r));
+      }
+    }
+    return dst;
+  }
+
+  // Build Float32 input from src
+  const input = new Float32Array(w * h);
+  for (let i = 0; i < src.length; i++) input[i] = src[i];
+
+  // Two passes for smoother Gaussian approximation
+  const pass1 = singlePass(input);
+  const pass2 = singlePass(pass1);
+  return pass2;
+}
+
+/**
+ * Applies feathered (blurred) color fill to an ImageData using a binary pixel mask.
+ * When feather > 0, the mask is blurred so that the fill blends softly at the boundary.
+ * When feather = 0, hard pixel replacement is used.
+ *
+ * Returns a new ImageData (does not mutate input).
+ */
+export function applyFeatheredFill(
+  imageData: ImageData,
+  pixels: { x: number; y: number }[],
+  newColor: [number, number, number],
+  featherRadius: number,
+  transparent = false
+): ImageData {
+  const { width, height, data } = imageData;
+  const resultData = new Uint8ClampedArray(data);
+
+  if (featherRadius <= 0) {
+    // Hard fill
+    const [r, g, b] = newColor;
+    for (const { x, y } of pixels) {
+      const k = (y * width + x) * 4;
+      if (transparent) {
+        resultData[k + 3] = 0;
+      } else {
+        resultData[k] = r;
+        resultData[k + 1] = g;
+        resultData[k + 2] = b;
+        resultData[k + 3] = 255;
+      }
+    }
+    return new ImageData(resultData, width, height);
+  }
+
+  // Build binary mask
+  const mask = new Float32Array(width * height);
+  for (const { x, y } of pixels) {
+    mask[y * width + x] = 1;
+  }
+
+  // Blur mask
+  const blurred = blurMask(mask, width, height, featherRadius);
+
+  const [fr, fg, fb] = newColor;
+  for (let i = 0; i < width * height; i++) {
+    const a = blurred[i];
+    if (a <= 0) continue;
+    const k = i * 4;
+    if (transparent) {
+      resultData[k + 3] = Math.max(0, Math.round(resultData[k + 3] * (1 - a)));
+    } else {
+      resultData[k] = Math.round(resultData[k] * (1 - a) + fr * a);
+      resultData[k + 1] = Math.round(resultData[k + 1] * (1 - a) + fg * a);
+      resultData[k + 2] = Math.round(resultData[k + 2] * (1 - a) + fb * a);
+      resultData[k + 3] = Math.min(255, Math.round(resultData[k + 3] + (255 - resultData[k + 3]) * a));
+    }
+  }
+
+  return new ImageData(resultData, width, height);
+}
+
+/**
  * Rewrites an SVG string so its rendered size has a long edge of
  * SVG_TARGET_LONG_EDGE pixels, preserving aspect ratio.
  */
@@ -830,10 +954,44 @@ export function MvpEditor() {
   // S2: hole-fill radius (0 = OFF, 1-5)
   const [closeRadius, setCloseRadius] = useState(0);
 
+  // S3: feather radius (0 = no blur, 1-20)
+  const [featherRadius, setFeatherRadius] = useState(0);
+
+  // S3: recent colors (in-memory, up to 8, most recent first)
+  const [recentColors, setRecentColors] = useState<string[]>([]);
+
+  // S3: toast notification
+  const [currentToast, setCurrentToast] = useState<ToastMessage | null>(null);
+  const toastIdRef = useRef(0);
+
+  // S3: shortcut help popover
+  const [shortcutPos, setShortcutPos] = useState<{ x: number; y: number } | null>(null);
+
   // Ref for the color swatch button (to position the HSV picker)
   const colorSwatchRef = useRef<HTMLButtonElement>(null);
 
   const zoom = useZoomPan(spacePressed);
+
+  // ---------------------------------------------------------------------------
+  // S3: Toast helper
+  // ---------------------------------------------------------------------------
+
+  const showToast = useCallback((message: string, type: ToastMessage["type"] = "success") => {
+    toastIdRef.current += 1;
+    setCurrentToast({ message, type, id: toastIdRef.current });
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // S3: Recent colors helper
+  // ---------------------------------------------------------------------------
+
+  const addRecentColor = useCallback((hex: string) => {
+    setRecentColors((prev) => {
+      const normalized = hex.toLowerCase();
+      const filtered = prev.filter((c) => c.toLowerCase() !== normalized);
+      return [hex, ...filtered].slice(0, RECENT_COLORS_MAX);
+    });
+  }, []);
 
   // Trigger an explicit canvas redraw without changing React state for regions.
   // Used by brush strokes (which mutate bakeLayerRef directly) and Undo/Redo.
@@ -1157,6 +1315,7 @@ export function MvpEditor() {
         if (!rgb) return;
         const hex = rgbToHex(rgb[0], rgb[1], rgb[2]);
         setSelectedColor(hex);
+        addRecentColor(hex);
         setMode("color");
         setStatus(`スポイト: ${hex.toUpperCase()} を選択`);
         return;
@@ -1188,6 +1347,7 @@ export function MvpEditor() {
           pushBakeSnapshot(newBake);
           regionHistory.push([...regions]);
           triggerRedraw();
+          addRecentColor(selectedColor);
           setStatus(`滑らか置換 → ${selectedColor}`);
           return;
         }
@@ -1196,6 +1356,27 @@ export function MvpEditor() {
         if (closeRadius > 0) {
           replacePixels = closeMask(replacePixels, baseState.naturalWidth, baseState.naturalHeight, closeRadius);
         }
+
+        // S3: apply feather if featherRadius > 0
+        if (featherRadius > 0) {
+          const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
+          const newColor = hexToRgb(selectedColor);
+          const feathered = applyFeatheredFill(composited, replacePixels, newColor, featherRadius, false);
+          const w = baseState.naturalWidth;
+          const hh = baseState.naturalHeight;
+          const newBake2 = new ImageData(new Uint8ClampedArray(w * hh * 4), w, hh);
+          const srcData = feathered.data;
+          const bakeData2 = newBake2.data;
+          for (let idx2 = 0; idx2 < w * hh * 4; idx2++) bakeData2[idx2] = srcData[idx2];
+          bakeLayerRef.current = newBake2;
+          pushBakeSnapshot(newBake2);
+          regionHistory.push([...regions]);
+          triggerRedraw();
+          addRecentColor(selectedColor);
+          setStatus(`一括置換 (フェザー${featherRadius}): ${replacePixels.length}px → ${selectedColor}`);
+          return;
+        }
+
         const newRegion: PaintRegion = {
           id: `region-${Date.now()}`,
           pixels: replacePixels,
@@ -1204,6 +1385,7 @@ export function MvpEditor() {
         };
         pushBakeSnapshot(bakeLayerRef.current);
         regionHistory.push([...regions, newRegion]);
+        addRecentColor(selectedColor);
         setStatus(`一括置換: ${replacePixels.length}px → ${selectedColor}`);
         return;
       }
@@ -1221,6 +1403,30 @@ export function MvpEditor() {
         pixels = closeMask(pixels, baseState.naturalWidth, baseState.naturalHeight, closeRadius);
       }
 
+      // S3: apply feather if featherRadius > 0
+      if (featherRadius > 0) {
+        const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
+        const newColor = hexToRgb(selectedColor);
+        const feathered = applyFeatheredFill(composited, pixels, newColor, featherRadius, mode === "transparent");
+        const w2 = baseState.naturalWidth;
+        const h2 = baseState.naturalHeight;
+        const newBakeF = new ImageData(new Uint8ClampedArray(w2 * h2 * 4), w2, h2);
+        const srcDataF = feathered.data;
+        const bakeDataF = newBakeF.data;
+        for (let idxF = 0; idxF < w2 * h2 * 4; idxF++) bakeDataF[idxF] = srcDataF[idxF];
+        bakeLayerRef.current = newBakeF;
+        pushBakeSnapshot(newBakeF);
+        regionHistory.push([...regions]);
+        triggerRedraw();
+        if (mode !== "transparent") addRecentColor(selectedColor);
+        setStatus(
+          mode === "transparent"
+            ? `透過 (フェザー${featherRadius}): ${pixels.length}px`
+            : `色変更 (フェザー${featherRadius}): ${pixels.length}px → ${selectedColor}`
+        );
+        return;
+      }
+
       const newRegion: PaintRegion = {
         id: `region-${Date.now()}`,
         pixels,
@@ -1230,13 +1436,14 @@ export function MvpEditor() {
 
       pushBakeSnapshot(bakeLayerRef.current);
       regionHistory.push([...regions, newRegion]);
+      if (mode !== "transparent") addRecentColor(selectedColor);
       setStatus(
         mode === "transparent"
           ? `透過: ${pixels.length}px 選択`
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, pushBakeSnapshot, triggerRedraw]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, featherRadius, pushBakeSnapshot, triggerRedraw, addRecentColor]
   );
 
   // ---------------------------------------------------------------------------
@@ -1431,6 +1638,7 @@ export function MvpEditor() {
     const { pixels } = makeWhiteTransparent(baseState.imageData, 5);
     if (pixels.length === 0) {
       setStatus("白ピクセルが見つかりませんでした");
+      showToast("白ピクセルが見つかりませんでした", "error");
       return;
     }
     const newRegion: PaintRegion = {
@@ -1442,7 +1650,8 @@ export function MvpEditor() {
     pushBakeSnapshot(bakeLayerRef.current);
     regionHistory.push([...regions, newRegion]);
     setStatus(`白を透過: ${pixels.length}px`);
-  }, [baseState.imageData, regions, regionHistory, pushBakeSnapshot]);
+    showToast(`白を透過しました (${pixels.length}px)`);
+  }, [baseState.imageData, regions, regionHistory, pushBakeSnapshot, showToast]);
 
   // ---------------------------------------------------------------------------
   // B-2: Save brand swatch
@@ -1456,7 +1665,8 @@ export function MvpEditor() {
       return next;
     });
     setStatus(`ブランドカラーに保存: ${selectedColor.toUpperCase()}`);
-  }, [selectedColor]);
+    showToast(`ブランドカラーに保存: ${selectedColor.toUpperCase()}`);
+  }, [selectedColor, showToast]);
 
   const handleRemoveBrandSwatch = useCallback((hex: string) => {
     setBrandSwatches((prev) => {
@@ -1486,7 +1696,8 @@ export function MvpEditor() {
     a.click();
     URL.revokeObjectURL(url);
     setStatus("SVGをエクスポートしました");
-  }, [baseState, regions]);
+    showToast("SVGをエクスポートしました");
+  }, [baseState, regions, showToast]);
 
   const handleExportPng = useCallback(() => {
     if (!baseState.imageData) return;
@@ -1497,7 +1708,8 @@ export function MvpEditor() {
     a.download = `export_${pngScale}x.png`;
     a.click();
     setStatus(`PNGをエクスポートしました (${pngScale}x)`);
-  }, [baseState, regions, pngScale]);
+    showToast(`PNGをエクスポートしました (${pngScale}x)`);
+  }, [baseState, regions, pngScale, showToast]);
 
   // ---------------------------------------------------------------------------
   // Fit to container
@@ -1758,6 +1970,23 @@ export function MvpEditor() {
           </>
         )}
 
+        {/* S3: Feather radius — shown when not in brush mode */}
+        {mode !== "brush" && (
+          <>
+            <span style={labelStyle}>フェザー: {featherRadius}</span>
+            <input
+              type="range"
+              min={0}
+              max={20}
+              step={1}
+              value={featherRadius}
+              onChange={(e) => setFeatherRadius(Number(e.target.value))}
+              style={{ width: 70 }}
+              title="フェザー (境界ぼかし) 0=OFF, 1-20px"
+            />
+          </>
+        )}
+
         {/* Smooth replace checkbox — shown only in replace-all mode */}
         {mode === "replace-all" && (
           <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="境界を滑らかにブレンドして置換">
@@ -1999,6 +2228,47 @@ export function MvpEditor() {
         </div>
       )}
 
+      {/* S3: Recent colors panel */}
+      {recentColors.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: T.space.xs + 2,
+            padding: `4px ${T.space.md}px`,
+            background: T.color.bgBase,
+            borderBottom: `1px solid ${T.color.border}`,
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ ...labelStyle, marginRight: T.space.xs }}>最近:</span>
+          {recentColors.map((hex, i) => (
+            <button
+              key={`${hex}-${i}`}
+              type="button"
+              onClick={() => {
+                setSelectedColor(hex);
+                if (mode !== "color" && mode !== "replace-all") setMode("color");
+              }}
+              title={hex.toUpperCase()}
+              style={{
+                width: 22,
+                height: 22,
+                background: hex,
+                border: selectedColor === hex
+                  ? `2px solid ${T.color.accent}`
+                  : `1px solid ${T.color.borderMid}`,
+                borderRadius: T.radius.sm,
+                cursor: "pointer",
+                padding: 0,
+                flexShrink: 0,
+                transition: "transform 80ms",
+              }}
+            />
+          ))}
+        </div>
+      )}
+
       {/* B-2: Brand color swatches panel */}
       {brandSwatches.length > 0 && (
         <div
@@ -2072,6 +2342,10 @@ export function MvpEditor() {
           ref={containerRef}
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setShortcutPos({ x: e.clientX, y: e.clientY });
+          }}
           onWheel={zoom.onWheel}
           onMouseDown={zoom.onMouseDown}
           onMouseMove={zoom.onMouseMove}
@@ -2157,8 +2431,8 @@ export function MvpEditor() {
             </div>
           )}
 
-          {/* Status bar (bottom-left): mode name + hover info or status */}
-          {baseState.imageData && (
+          {/* Status bar (bottom-left): hover coordinates (primary) or operation status */}
+          {baseState.imageData && (hoverInfo || status) && (
             <div style={statusBarStyle}>
               <span style={statusModeLabelStyle}>[{modeLabel}]</span>
               {hoverInfo ?? status}
@@ -2212,6 +2486,21 @@ export function MvpEditor() {
           </div>
         )}
       </div>
+
+      {/* S3: Toast notification */}
+      <Toast
+        toast={currentToast}
+        onDismiss={() => setCurrentToast(null)}
+      />
+
+      {/* S3: Shortcut help popover */}
+      {shortcutPos && (
+        <ShortcutHelp
+          x={shortcutPos.x}
+          y={shortcutPos.y}
+          onClose={() => setShortcutPos(null)}
+        />
+      )}
     </div>
   );
 }
@@ -2419,7 +2708,8 @@ const iconBtnStyle: React.CSSProperties = {
   border: `1px solid ${T.color.borderMid}`,
   borderRadius: T.radius.sm,
   cursor: "pointer",
-  transition: "background 120ms",
+  // S3: transition補完
+  transition: "background 120ms, transform 80ms",
   flexShrink: 0,
 };
 

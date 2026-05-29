@@ -20,6 +20,7 @@ import {
   extractPaletteColors,
   smoothReplaceAll,
   closeMask,
+  blurMask,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 import { hsv2rgb, rgb2hsv } from "../../src/components/MvpEditor/components/HsvPicker";
@@ -659,6 +660,52 @@ describe("hsv2rgb / rgb2hsv round-trip", () => {
 // ---------------------------------------------------------------------------
 // S2: closeMask (hole-fill morphological closing)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// S3: blurMask (2-pass box blur)
+// ---------------------------------------------------------------------------
+
+describe("blurMask", () => {
+  it("returns input unchanged when radius=0", () => {
+    const src = new Float32Array([0, 1, 0, 1, 0, 1, 0, 1, 0]);
+    const result = blurMask(src, 3, 3, 0);
+    for (let i = 0; i < src.length; i++) {
+      expect(result[i]).toBeCloseTo(src[i], 5);
+    }
+  });
+
+  it("output length matches width*height", () => {
+    const src = new Float32Array(4 * 4).fill(1);
+    const result = blurMask(src, 4, 4, 2);
+    expect(result.length).toBe(16);
+  });
+
+  it("uniform all-1 mask stays ~1.0 after blurring (area average preserving)", () => {
+    const w = 8, h = 8;
+    const src = new Float32Array(w * h).fill(1);
+    const result = blurMask(src, w, h, 2);
+    // Interior pixels of a uniform field should still be ~1 after box blur
+    for (let y = 2; y < h - 2; y++) {
+      for (let x = 2; x < w - 2; x++) {
+        expect(result[y * w + x]).toBeCloseTo(1, 2);
+      }
+    }
+  });
+
+  it("single hot-pixel mask is blurred outward (center value decreases, neighbors increase)", () => {
+    const w = 5, h = 5;
+    const src = new Float32Array(w * h);
+    src[2 * w + 2] = 1; // center only
+    const result = blurMask(src, w, h, 1);
+    // Center should be less than 1 (spread to neighbors)
+    expect(result[2 * w + 2]).toBeLessThan(1);
+    // At least one neighbor should have gained value
+    const neighborSum =
+      result[1 * w + 2] + result[3 * w + 2] +
+      result[2 * w + 1] + result[2 * w + 3];
+    expect(neighborSum).toBeGreaterThan(0);
+  });
+});
 
 describe("closeMask", () => {
   it("returns input unchanged when radius=0", () => {
