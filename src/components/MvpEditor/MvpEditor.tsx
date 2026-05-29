@@ -3,6 +3,45 @@ import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
 
 // ---------------------------------------------------------------------------
+// Design tokens — Professional Dark Studio
+// ---------------------------------------------------------------------------
+
+const T = {
+  color: {
+    bgBase:      "#141414",
+    bgPanel:     "#1c1c1c",
+    bgElevated:  "#242424",
+    border:      "rgba(255,255,255,0.08)",
+    borderMid:   "rgba(255,255,255,0.14)",
+    textPrimary: "#e8e8e8",
+    textMuted:   "#888",
+    textDim:     "#666",
+    accent:      "#4f8ef7",
+    accentHover: "#6aa3ff",
+    danger:      "#e05555",
+    dangerDark:  "#7a1a1a",
+    success:     "#4caf7d",
+    overlay:     "rgba(0,0,0,0.6)",
+    overlayMid:  "rgba(0,0,0,0.5)",
+    checkerA:    "#2a2a2a",
+    checkerB:    "#1e1e1e",
+    swatchRemoveBg: "#600",
+  },
+  space: { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 } as const,
+  radius: { sm: 4, md: 6, lg: 10 } as const,
+  shadow: {
+    panel:    "0 1px 3px rgba(0,0,0,0.4)",
+    elevated: "0 4px 16px rgba(0,0,0,0.6)",
+  },
+  font: {
+    family: "'Inter','Noto Sans JP',system-ui,sans-serif",
+    label:  11,
+    body:   13,
+    badge:  10,
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -1409,9 +1448,9 @@ export function MvpEditor() {
         flexDirection: "column",
         height: "100%",
         width: "100%",
-        background: "#2d2d2d",
-        color: "#f0f0f0",
-        fontFamily: "sans-serif",
+        background: T.color.bgBase,
+        color: T.color.textPrimary,
+        fontFamily: T.font.family,
       }}
     >
       {/* Toolbar row 1 */}
@@ -1419,10 +1458,10 @@ export function MvpEditor() {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          padding: "6px 12px",
-          background: "#1a1a1a",
-          borderBottom: "1px solid #333",
+          gap: T.space.sm,
+          padding: `6px ${T.space.md}px`,
+          background: T.color.bgPanel,
+          borderBottom: `1px solid ${T.color.border}`,
           flexWrap: "wrap",
         }}
       >
@@ -1450,7 +1489,7 @@ export function MvpEditor() {
           type="button"
           aria-pressed={mode === "color" ? "true" : "false"}
           onClick={() => setMode("color")}
-          style={{ ...btnStyle, background: mode === "color" ? "#0066cc" : "#444" }}
+          style={mode === "color" ? btnActiveStyle : btnStyle}
           title="塗りつぶし色変更"
         >
           色変更
@@ -1459,7 +1498,7 @@ export function MvpEditor() {
           type="button"
           aria-pressed={mode === "transparent" ? "true" : "false"}
           onClick={() => setMode("transparent")}
-          style={{ ...btnStyle, background: mode === "transparent" ? "#0066cc" : "#444" }}
+          style={mode === "transparent" ? btnActiveStyle : btnStyle}
           title="塗りつぶし透過"
         >
           透過
@@ -1468,7 +1507,7 @@ export function MvpEditor() {
           type="button"
           aria-pressed={mode === "eyedropper" ? "true" : "false"}
           onClick={() => setMode("eyedropper")}
-          style={{ ...btnStyle, background: mode === "eyedropper" ? "#cc6600" : "#444" }}
+          style={mode === "eyedropper" ? btnActiveStyle : btnStyle}
           title="スポイト (I)"
         >
           スポイト
@@ -1477,7 +1516,7 @@ export function MvpEditor() {
           type="button"
           aria-pressed={mode === "replace-all" ? "true" : "false"}
           onClick={() => setMode("replace-all")}
-          style={{ ...btnStyle, background: mode === "replace-all" ? "#7700cc" : "#444" }}
+          style={mode === "replace-all" ? btnActiveStyle : btnStyle}
           title="同色一括置換 (R)"
         >
           一括置換
@@ -1486,7 +1525,7 @@ export function MvpEditor() {
           type="button"
           aria-pressed={mode === "brush" ? "true" : "false"}
           onClick={() => setMode("brush")}
-          style={{ ...btnStyle, background: mode === "brush" ? "#cc3300" : "#444" }}
+          style={mode === "brush" ? btnActiveStyle : btnStyle}
           title="ブラシ (B)"
         >
           ブラシ
@@ -1498,7 +1537,16 @@ export function MvpEditor() {
             type="color"
             value={selectedColor}
             onChange={(e) => setSelectedColor(e.target.value)}
-            style={{ width: 36, height: 28, cursor: "pointer", border: "1px solid #666", borderRadius: 4, background: "none" }}
+            style={{
+              width: 28,
+              height: 28,
+              cursor: "pointer",
+              border: `2px solid ${T.color.borderMid}`,
+              borderRadius: "50%",
+              background: "none",
+              padding: 0,
+              outline: "none",
+            }}
             title="色を選択"
           />
         )}
@@ -1582,10 +1630,10 @@ export function MvpEditor() {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          padding: "6px 12px",
-          background: "#1e1e1e",
-          borderBottom: "1px solid #444",
+          gap: T.space.sm,
+          padding: `6px ${T.space.md}px`,
+          background: T.color.bgPanel,
+          borderBottom: `1px solid ${T.color.border}`,
           flexWrap: "wrap",
         }}
       >
@@ -1594,7 +1642,7 @@ export function MvpEditor() {
           type="button"
           onClick={() => { regionHistory.undo(); undoBakeSnapshot(); triggerRedraw(); setStatus("元に戻しました"); }}
           disabled={!regionHistory.canUndo}
-          style={btnStyle}
+          style={!regionHistory.canUndo ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
           title="元に戻す (Ctrl+Z)"
         >
           Undo
@@ -1603,7 +1651,7 @@ export function MvpEditor() {
           type="button"
           onClick={() => { regionHistory.redo(); redoBakeSnapshot(); triggerRedraw(); setStatus("やり直しました"); }}
           disabled={!regionHistory.canRedo}
-          style={btnStyle}
+          style={!regionHistory.canRedo ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
           title="やり直し (Ctrl+Y)"
         >
           Redo
@@ -1612,7 +1660,7 @@ export function MvpEditor() {
           type="button"
           onClick={() => { regionHistory.reset([]); resetBakeHistory(); triggerRedraw(); setStatus("全リセット完了"); }}
           disabled={regions.length === 0}
-          style={{ ...btnStyle, background: "#662222" }}
+          style={regions.length === 0 ? { ...btnDangerStyle, opacity: 0.35, pointerEvents: "none" } : btnDangerStyle}
         >
           全リセット
         </button>
@@ -1624,7 +1672,7 @@ export function MvpEditor() {
           type="button"
           onClick={handleFit}
           disabled={!baseState.imageData}
-          style={btnStyle}
+          style={!baseState.imageData ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
           title="フィット表示 (Ctrl+0)"
         >
           Fit
@@ -1637,7 +1685,7 @@ export function MvpEditor() {
           type="button"
           onClick={handleExportSvg}
           disabled={!baseState.imageData}
-          style={{ ...btnStyle, background: "#226622" }}
+          style={!baseState.imageData ? { ...btnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : btnSuccessStyle}
         >
           SVG出力
         </button>
@@ -1647,7 +1695,7 @@ export function MvpEditor() {
           type="button"
           onClick={handleExportPng}
           disabled={!baseState.imageData}
-          style={{ ...btnStyle, background: "#226622" }}
+          style={!baseState.imageData ? { ...btnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : btnSuccessStyle}
         >
           PNG出力
         </button>
@@ -1655,11 +1703,12 @@ export function MvpEditor() {
           value={pngScale}
           onChange={(e) => setPngScale(Number(e.target.value) as 1 | 2 | 4)}
           style={{
-            background: "#333",
-            color: "#f0f0f0",
-            border: "1px solid #666",
-            borderRadius: 4,
-            fontSize: 12,
+            background: T.color.bgElevated,
+            color: T.color.textPrimary,
+            border: `1px solid ${T.color.borderMid}`,
+            borderRadius: T.radius.sm,
+            fontSize: T.font.label,
+            fontFamily: T.font.family,
             padding: "3px 4px",
             cursor: "pointer",
           }}
@@ -1677,7 +1726,7 @@ export function MvpEditor() {
           type="button"
           onClick={handleTransparentWhite}
           disabled={!baseState.imageData}
-          style={{ ...btnStyle, background: "#445566" }}
+          style={!baseState.imageData ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" } : btnStyle}
           title="白色 (#FFFFFF ±5) を全画素で透過にする"
         >
           白を透過
@@ -1688,7 +1737,7 @@ export function MvpEditor() {
           <button
             type="button"
             onClick={handleSaveBrandSwatch}
-            style={{ ...btnStyle, background: "#334455" }}
+            style={btnStyle}
             title="現在の選択色をブランドカラーとして保存 (最大8色)"
           >
             色を保存
@@ -1702,7 +1751,13 @@ export function MvpEditor() {
           onMouseUp={() => setComparing(false)}
           onMouseLeave={() => setComparing(false)}
           disabled={!baseState.imageData || regions.length === 0}
-          style={{ ...btnStyle, background: comparing ? "#666633" : "#444" }}
+          style={
+            (!baseState.imageData || regions.length === 0)
+              ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" }
+              : comparing
+                ? { ...btnStyle, background: T.color.bgElevated, border: `1px solid ${T.color.accent}` }
+                : btnStyle
+          }
           title="押している間は編集前の元画像を表示"
         >
           比較
@@ -1714,14 +1769,14 @@ export function MvpEditor() {
         <button
           type="button"
           onClick={() => setShowPalette((v) => !v)}
-          style={{ ...btnStyle, background: showPalette ? "#555" : "#333" }}
+          style={showPalette ? { ...btnStyle, border: `1px solid ${T.color.accent}` } : btnSubtleStyle}
         >
           {showPalette ? "パレット ▲" : "パレット ▼"}
         </button>
         <button
           type="button"
           onClick={() => setShowMapping((v) => !v)}
-          style={{ ...btnStyle, background: showMapping ? "#555" : "#333" }}
+          style={showMapping ? { ...btnStyle, border: `1px solid ${T.color.accent}` } : btnSubtleStyle}
         >
           {showMapping ? "編集ログ ▲" : "編集ログ ▼"}
         </button>
@@ -1733,13 +1788,13 @@ export function MvpEditor() {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            padding: "6px 12px",
-            background: "#181818",
-            borderBottom: "1px solid #333",
+            gap: T.space.xs + 2,
+            padding: `6px ${T.space.md}px`,
+            background: T.color.bgPanel,
+            borderBottom: `1px solid ${T.color.border}`,
           }}
         >
-          <span style={{ ...labelStyle, marginRight: 4 }}>主要色:</span>
+          <span style={{ ...labelStyle, marginRight: T.space.xs }}>主要色:</span>
           {palette.map((hex) => (
             <button
               key={hex}
@@ -1750,13 +1805,16 @@ export function MvpEditor() {
               }}
               title={hex.toUpperCase()}
               style={{
-                width: 24,
-                height: 24,
+                width: 22,
+                height: 22,
                 background: hex,
-                border: selectedColor === hex ? "2px solid #fff" : "1px solid #555",
-                borderRadius: 3,
+                border: selectedColor === hex
+                  ? `2px solid ${T.color.accent}`
+                  : `1px solid ${T.color.borderMid}`,
+                borderRadius: T.radius.sm,
                 cursor: "pointer",
                 padding: 0,
+                flexShrink: 0,
               }}
             />
           ))}
@@ -1769,14 +1827,14 @@ export function MvpEditor() {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            padding: "4px 12px",
-            background: "#161616",
-            borderBottom: "1px solid #2a2a2a",
+            gap: T.space.xs + 2,
+            padding: `4px ${T.space.md}px`,
+            background: T.color.bgBase,
+            borderBottom: `1px solid ${T.color.border}`,
             flexWrap: "wrap",
           }}
         >
-          <span style={{ ...labelStyle, marginRight: 4 }}>ブランド:</span>
+          <span style={{ ...labelStyle, marginRight: T.space.xs }}>ブランド:</span>
           {brandSwatches.map((hex) => (
             <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
               <button
@@ -1787,13 +1845,16 @@ export function MvpEditor() {
                 }}
                 title={hex.toUpperCase()}
                 style={{
-                  width: 24,
-                  height: 24,
+                  width: 22,
+                  height: 22,
                   background: hex,
-                  border: selectedColor === hex ? "2px solid #fff" : "1px solid #666",
-                  borderRadius: 3,
+                  border: selectedColor === hex
+                    ? `2px solid ${T.color.accent}`
+                    : `1px solid ${T.color.borderMid}`,
+                  borderRadius: T.radius.sm,
                   cursor: "pointer",
                   padding: 0,
+                  flexShrink: 0,
                 }}
               />
               <button
@@ -1806,8 +1867,8 @@ export function MvpEditor() {
                   right: -4,
                   width: 12,
                   height: 12,
-                  background: "#600",
-                  color: "#fff",
+                  background: T.color.swatchRemoveBg,
+                  color: T.color.textPrimary,
                   border: "none",
                   borderRadius: "50%",
                   cursor: "pointer",
@@ -1847,28 +1908,52 @@ export function MvpEditor() {
             position: "relative",
             cursor: canvasCursor,
             backgroundImage:
-              "linear-gradient(45deg, #3a3a3a 25%, transparent 25%), " +
-              "linear-gradient(-45deg, #3a3a3a 25%, transparent 25%), " +
-              "linear-gradient(45deg, transparent 75%, #3a3a3a 75%), " +
-              "linear-gradient(-45deg, transparent 75%, #3a3a3a 75%)",
+              `linear-gradient(45deg, ${T.color.checkerA} 25%, transparent 25%), ` +
+              `linear-gradient(-45deg, ${T.color.checkerA} 25%, transparent 25%), ` +
+              `linear-gradient(45deg, transparent 75%, ${T.color.checkerA} 75%), ` +
+              `linear-gradient(-45deg, transparent 75%, ${T.color.checkerA} 75%)`,
             backgroundSize: "16px 16px",
             backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+            backgroundColor: T.color.checkerB,
           }}
         >
           {!baseState.imageData ? (
-            <div
-              style={{
-                border: "2px dashed #666",
-                borderRadius: 8,
-                padding: "48px 64px",
-                textAlign: "center",
-                color: "#888",
-                pointerEvents: "none",
-              }}
-            >
-              <p style={{ margin: 0, fontSize: 18 }}>ここに画像をドロップ</p>
-              <p style={{ margin: "8px 0 0", fontSize: 13 }}>または「画像を開く」ボタン</p>
-              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#666" }}>PNG / JPG / SVG / WebP / BMP 対応</p>
+            <div style={dropZoneStyle}>
+              <svg
+                width="40"
+                height="40"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={dropZoneIconStyle}
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <div>
+                <p style={dropZoneTitleStyle}>
+                  画像をドロップ
+                </p>
+                <p style={dropZoneSubStyle}>
+                  PNG / JPG / SVG / WebP
+                </p>
+              </div>
+              <div style={dropZoneDividerStyle}>
+                <span style={dropZoneDividerLineStyle} />
+                または
+                <span style={dropZoneDividerLineStyle} />
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={dropZoneButtonStyle}
+              >
+                ファイルを選択
+              </button>
             </div>
           ) : (
             <div
@@ -1889,7 +1974,7 @@ export function MvpEditor() {
                 onMouseMove={(e) => { handleCanvasMouseMove(e); handleBrushMouseMove(e); }}
                 onMouseUp={handleBrushMouseUp}
                 onMouseLeave={() => { handleCanvasMouseLeave(); handleBrushMouseUp(); }}
-                style={{ cursor: canvasCursor, display: "block" }}
+                style={{ cursor: canvasCursor, display: "block" } as React.CSSProperties}
               />
             </div>
           )}
@@ -1897,7 +1982,7 @@ export function MvpEditor() {
           {/* Status bar (bottom-left): mode name + hover info or status */}
           {baseState.imageData && (
             <div style={statusBarStyle}>
-              <span style={{ color: "#888", marginRight: 6 }}>[{modeLabel}]</span>
+              <span style={statusModeLabelStyle}>[{modeLabel}]</span>
               {hoverInfo ?? status}
             </div>
           )}
@@ -1912,69 +1997,33 @@ export function MvpEditor() {
 
         {/* Mapping sidebar */}
         {showMapping && mappingEntries.length > 0 && (
-          <div
-            style={{
-              width: 220,
-              background: "#181818",
-              borderLeft: "1px solid #333",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #333",
-                fontSize: 11,
-                color: "#aaa",
-                fontWeight: "bold",
-              }}
-            >
+          <div style={sidebarStyle}>
+            <div style={sidebarHeaderStyle}>
               編集ログ ({mappingEntries.length})
             </div>
-            <div style={{ flex: 1, overflowY: "auto" }}>
+            <div style={sidebarScrollStyle}>
               {mappingEntries.map((region) => (
-                <div
-                  key={region.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 8px",
-                    borderBottom: "1px solid #222",
-                    fontSize: 11,
-                  }}
-                >
+                <div key={region.id} style={sidebarRowStyle}>
                   <span
                     style={{
                       width: 14,
                       height: 14,
                       background: region.color,
-                      border: "1px solid #555",
-                      borderRadius: 2,
+                      border: `1px solid ${T.color.borderMid}`,
+                      borderRadius: T.radius.sm,
                       flexShrink: 0,
                       display: "inline-block",
                     }}
                   />
-                  <span style={{ color: "#ccc", flex: 1, fontFamily: "monospace", fontSize: 10 }}>
+                  <span style={sidebarColorLabelStyle}>
                     {region.color.toUpperCase()}
                     <br />
-                    <span style={{ color: "#666" }}>{region.pixels.length}px</span>
+                    <span style={sidebarPixelCountStyle}>{region.pixels.length}px</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => handleRemoveRegion(region.id)}
-                    style={{
-                      background: "#400",
-                      color: "#f88",
-                      border: "none",
-                      borderRadius: 2,
-                      cursor: "pointer",
-                      fontSize: 10,
-                      padding: "1px 5px",
-                      flexShrink: 0,
-                    }}
+                    style={sidebarRemoveBtnStyle}
                     title="このリージョンを削除"
                   >
                     x
@@ -1994,50 +2043,200 @@ export function MvpEditor() {
 // ---------------------------------------------------------------------------
 
 const btnStyle: React.CSSProperties = {
-  padding: "4px 10px",
-  background: "#444",
-  color: "#f0f0f0",
-  border: "1px solid #666",
-  borderRadius: 4,
+  padding: "3px 10px",
+  background: T.color.bgElevated,
+  color: T.color.textPrimary,
+  border: `1px solid ${T.color.borderMid}`,
+  borderRadius: T.radius.sm,
   cursor: "pointer",
-  fontSize: 12,
+  fontSize: T.font.label,
+  fontFamily: T.font.family,
+  transition: "background 120ms",
+};
+
+const btnActiveStyle: React.CSSProperties = {
+  ...btnStyle,
+  background: T.color.accent,
+  border: `1px solid ${T.color.accent}`,
+  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.35)",
+};
+
+const btnDangerStyle: React.CSSProperties = {
+  ...btnStyle,
+  background: T.color.danger,
+  border: `1px solid ${T.color.danger}`,
+};
+
+const btnSuccessStyle: React.CSSProperties = {
+  ...btnStyle,
+  background: T.color.success,
+  border: `1px solid ${T.color.success}`,
+};
+
+const btnSubtleStyle: React.CSSProperties = {
+  ...btnStyle,
+  background: "transparent",
+  border: `1px solid ${T.color.borderMid}`,
 };
 
 const dividerStyle: React.CSSProperties = {
   width: 1,
   height: 22,
-  background: "#444",
+  background: T.color.border,
+  flexShrink: 0,
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#aaa",
+  fontSize: T.font.label,
+  color: T.color.textMuted,
+  fontFamily: T.font.family,
 };
 
 const statusBarStyle: React.CSSProperties = {
   position: "absolute",
-  bottom: 8,
-  left: 12,
-  fontSize: 11,
-  color: "#ccc",
-  background: "rgba(0,0,0,0.6)",
+  bottom: T.space.sm,
+  left: T.space.md,
+  fontSize: T.font.label,
+  color: T.color.textPrimary,
+  background: T.color.overlay,
   padding: "2px 8px",
-  borderRadius: 3,
+  borderRadius: T.radius.sm,
   pointerEvents: "none",
   maxWidth: "60%",
   whiteSpace: "nowrap",
   overflow: "hidden",
   textOverflow: "ellipsis",
+  fontFamily: T.font.family,
 };
 
 const zoomIndicatorStyle: React.CSSProperties = {
   position: "absolute",
-  bottom: 8,
-  right: 12,
-  fontSize: 11,
-  color: "#aaa",
-  background: "rgba(0,0,0,0.5)",
+  bottom: T.space.sm,
+  right: T.space.md,
+  fontSize: T.font.label,
+  color: T.color.textMuted,
+  background: T.color.overlayMid,
   padding: "2px 6px",
-  borderRadius: 3,
+  borderRadius: T.radius.sm,
   pointerEvents: "none",
+  fontFamily: T.font.family,
+};
+
+const statusModeLabelStyle: React.CSSProperties = {
+  color: T.color.textMuted,
+  marginRight: T.space.xs + 2,
+};
+
+// Drop zone (empty state)
+const dropZoneStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: T.space.md,
+  border: `2px dashed ${T.color.borderMid}`,
+  borderRadius: T.radius.lg,
+  padding: `${T.space.xl * 2}px ${T.space.xl * 3}px`,
+  textAlign: "center",
+  color: T.color.textMuted,
+  pointerEvents: "none",
+  background: "rgba(255,255,255,0.02)",
+};
+
+const dropZoneIconStyle: React.CSSProperties = {
+  color: T.color.textMuted,
+  flexShrink: 0,
+};
+
+const dropZoneTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: T.font.body,
+  color: T.color.textPrimary,
+  fontFamily: T.font.family,
+};
+
+const dropZoneSubStyle: React.CSSProperties = {
+  margin: `${T.space.xs}px 0 0`,
+  fontSize: T.font.label,
+  color: T.color.textMuted,
+  fontFamily: T.font.family,
+};
+
+const dropZoneDividerStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: T.space.sm,
+  color: T.color.textDim,
+  fontSize: T.font.label,
+  fontFamily: T.font.family,
+};
+
+const dropZoneDividerLineStyle: React.CSSProperties = {
+  width: 40,
+  height: 1,
+  background: T.color.border,
+  display: "inline-block",
+};
+
+const dropZoneButtonStyle: React.CSSProperties = {
+  ...btnSubtleStyle,
+  pointerEvents: "auto",
+  fontSize: T.font.label,
+  padding: "5px 16px",
+  borderRadius: T.radius.md,
+};
+
+// Mapping sidebar
+const sidebarStyle: React.CSSProperties = {
+  width: 220,
+  background: T.color.bgPanel,
+  borderLeft: `1px solid ${T.color.border}`,
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+};
+
+const sidebarHeaderStyle: React.CSSProperties = {
+  padding: `${T.space.xs + 2}px ${T.space.sm + 2}px`,
+  borderBottom: `1px solid ${T.color.border}`,
+  fontSize: T.font.label,
+  color: T.color.textMuted,
+  fontWeight: "bold",
+  fontFamily: T.font.family,
+};
+
+const sidebarScrollStyle: React.CSSProperties = {
+  flex: 1,
+  overflowY: "auto",
+};
+
+const sidebarRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: T.space.xs + 2,
+  padding: `${T.space.xs}px ${T.space.sm}px`,
+  borderBottom: `1px solid ${T.color.border}`,
+  fontSize: T.font.label,
+};
+
+const sidebarColorLabelStyle: React.CSSProperties = {
+  color: T.color.textPrimary,
+  flex: 1,
+  fontFamily: "monospace",
+  fontSize: T.font.badge,
+};
+
+const sidebarPixelCountStyle: React.CSSProperties = {
+  color: T.color.textDim,
+};
+
+const sidebarRemoveBtnStyle: React.CSSProperties = {
+  background: T.color.dangerDark,
+  color: T.color.danger,
+  border: "none",
+  borderRadius: T.radius.sm,
+  cursor: "pointer",
+  fontSize: T.font.badge,
+  padding: "1px 5px",
+  flexShrink: 0,
+  fontFamily: T.font.family,
 };
