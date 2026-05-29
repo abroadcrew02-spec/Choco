@@ -1773,20 +1773,20 @@ export function MvpEditor() {
         fontFamily: T.font.family,
       }}
     >
-      {/* Toolbar row 1 */}
+      {/* ===== Property Bar (top, full-width) ===== */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: T.space.sm,
-          padding: `6px ${T.space.md}px`,
+          gap: T.space.xs,
+          padding: `5px ${T.space.sm}px`,
           background: T.color.bgPanel,
           borderBottom: `1px solid ${T.color.border}`,
           flexWrap: "wrap",
-          position: "relative",
+          flexShrink: 0,
         }}
       >
-        {/* Open image */}
+        {/* File open */}
         <Tooltip label="画像を開く">
           <button
             type="button"
@@ -1794,7 +1794,7 @@ export function MvpEditor() {
             style={iconBtnStyle}
             aria-label="画像を開く"
           >
-            <FolderOpen size={18} />
+            <FolderOpen size={16} />
           </button>
         </Tooltip>
         <input
@@ -1807,238 +1807,6 @@ export function MvpEditor() {
 
         <div style={dividerStyle} />
 
-        {/* Mode buttons (icon) */}
-        <Tooltip label="色変更">
-          <button
-            type="button"
-            aria-pressed={mode === "color" ? "true" : "false"}
-            onClick={() => setMode("color")}
-            style={mode === "color" ? iconBtnActiveStyle : iconBtnStyle}
-            aria-label="色変更"
-          >
-            <PaintBucket size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip label="透過">
-          <button
-            type="button"
-            aria-pressed={mode === "transparent" ? "true" : "false"}
-            onClick={() => setMode("transparent")}
-            style={mode === "transparent" ? iconBtnActiveStyle : iconBtnStyle}
-            aria-label="透過"
-          >
-            <Eraser size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip label="スポイト" shortcut="I">
-          <button
-            type="button"
-            aria-pressed={mode === "eyedropper" ? "true" : "false"}
-            onClick={() => setMode("eyedropper")}
-            style={mode === "eyedropper" ? iconBtnActiveStyle : iconBtnStyle}
-            aria-label="スポイト"
-          >
-            <Pipette size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip label="同色一括" shortcut="R">
-          <button
-            type="button"
-            aria-pressed={mode === "replace-all" ? "true" : "false"}
-            onClick={() => setMode("replace-all")}
-            style={mode === "replace-all" ? iconBtnActiveStyle : iconBtnStyle}
-            aria-label="同色一括"
-          >
-            <Replace size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip label="ブラシ" shortcut="B">
-          <button
-            type="button"
-            aria-pressed={mode === "brush" ? "true" : "false"}
-            onClick={() => setMode("brush")}
-            style={mode === "brush" ? iconBtnActiveStyle : iconBtnStyle}
-            aria-label="ブラシ"
-          >
-            <Paintbrush size={18} />
-          </button>
-        </Tooltip>
-
-        {/* Color swatch + existing input[type=color] + HSV picker toggle */}
-        {(mode === "color" || mode === "replace-all" || mode === "brush") && (
-          <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
-            {/* Color swatch circle — click to toggle HSV picker */}
-            <button
-              ref={colorSwatchRef}
-              type="button"
-              onClick={() => setHsvPickerOpen((v) => !v)}
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: "50%",
-                background: selectedColor,
-                border: `2px solid ${T.color.borderMid}`,
-                cursor: "pointer",
-                padding: 0,
-                flexShrink: 0,
-              }}
-              title="HSVピッカーで色を選択"
-              aria-label="HSVピッカーを開く"
-            />
-            {/* Existing native color input kept for accessibility / hex precision */}
-            <input
-              type="color"
-              value={selectedColor}
-              onChange={(e) => {
-                setSelectedColor(e.target.value);
-                setHsvPickerOpen(false);
-              }}
-              style={{
-                width: 18,
-                height: 18,
-                cursor: "pointer",
-                border: `1px solid ${T.color.borderMid}`,
-                borderRadius: T.radius.sm,
-                background: "none",
-                padding: 0,
-                outline: "none",
-                opacity: 0.7,
-              }}
-              title="色を直接入力"
-            />
-            {/* HSV picker popup */}
-            {hsvPickerOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 200 }}>
-                <HsvPicker
-                  hex={selectedColor}
-                  onChange={(h) => setSelectedColor(h)}
-                  onClose={() => setHsvPickerOpen(false)}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={dividerStyle} />
-
-        {/* Brush size — only shown in brush mode */}
-        {mode === "brush" && (
-          <>
-            <span style={labelStyle}>太さ: {brushSize}</span>
-            <input
-              type="range"
-              min={1}
-              max={100}
-              value={brushSize}
-              onChange={(e) => setBrushSize(Number(e.target.value))}
-              style={{ width: 80 }}
-              title="ブラシサイズ (1-100px)"
-            />
-          </>
-        )}
-
-        {/* Tolerance — not shown in brush mode */}
-        {mode !== "brush" && (
-          <>
-            <span style={labelStyle}>許容値: {tolerance}</span>
-            <input
-              type="range"
-              min={0}
-              max={128}
-              value={tolerance}
-              onChange={(e) => setTolerance(Number(e.target.value))}
-              style={{ width: 80 }}
-              title="色許容値"
-            />
-          </>
-        )}
-
-        {/* S2: Hole-fill (closeMask) — shown when not in brush mode */}
-        {mode !== "brush" && (
-          <>
-            <span style={labelStyle}>穴埋め: {closeRadius}</span>
-            <input
-              type="range"
-              min={0}
-              max={5}
-              step={1}
-              value={closeRadius}
-              onChange={(e) => setCloseRadius(Number(e.target.value))}
-              style={{ width: 60 }}
-              title="穴埋め半径 (0=OFF, クロージング半径 1-5)"
-            />
-          </>
-        )}
-
-        {/* S3: Feather radius — shown when not in brush mode */}
-        {mode !== "brush" && (
-          <>
-            <span style={labelStyle}>フェザー: {featherRadius}</span>
-            <input
-              type="range"
-              min={0}
-              max={20}
-              step={1}
-              value={featherRadius}
-              onChange={(e) => setFeatherRadius(Number(e.target.value))}
-              style={{ width: 70 }}
-              title="フェザー (境界ぼかし) 0=OFF, 1-20px"
-            />
-          </>
-        )}
-
-        {/* Smooth replace checkbox — shown only in replace-all mode */}
-        {mode === "replace-all" && (
-          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="境界を滑らかにブレンドして置換">
-            <input
-              type="checkbox"
-              checked={smoothReplace}
-              onChange={(e) => setSmoothReplace(e.target.checked)}
-              style={{ cursor: "pointer" }}
-            />
-            滑らかに置換
-          </label>
-        )}
-
-        {/* B-2: antialias boundary inclusion — not shown in brush/replace-all mode */}
-        {mode !== "brush" && mode !== "replace-all" && (
-          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
-            <input
-              type="checkbox"
-              checked={includeAntialias}
-              onChange={(e) => setIncludeAntialias(e.target.checked)}
-              style={{ cursor: "pointer" }}
-            />
-            境界含める
-          </label>
-        )}
-
-        {/* B-3: connectivity toggle — not shown in brush/replace-all mode */}
-        {mode !== "brush" && mode !== "replace-all" && (
-          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
-            <input
-              type="checkbox"
-              checked={connectivity === 8}
-              onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
-              style={{ cursor: "pointer" }}
-            />
-            8近傍
-          </label>
-        )}
-      </div>
-
-      {/* Toolbar row 2 */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: T.space.sm,
-          padding: `6px ${T.space.md}px`,
-          background: T.color.bgPanel,
-          borderBottom: `1px solid ${T.color.border}`,
-          flexWrap: "wrap",
-        }}
-      >
         {/* Undo / Redo / Reset */}
         <Tooltip label="元に戻す" shortcut="Ctrl+Z">
           <button
@@ -2048,7 +1816,7 @@ export function MvpEditor() {
             style={!regionHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
             aria-label="元に戻す"
           >
-            <Undo2 size={18} />
+            <Undo2 size={16} />
           </button>
         </Tooltip>
         <Tooltip label="やり直し" shortcut="Ctrl+Y">
@@ -2059,7 +1827,7 @@ export function MvpEditor() {
             style={!regionHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
             aria-label="やり直し"
           >
-            <Redo2 size={18} />
+            <Redo2 size={16} />
           </button>
         </Tooltip>
         <button
@@ -2082,7 +1850,7 @@ export function MvpEditor() {
             style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
             aria-label="フィット表示"
           >
-            <Maximize2 size={18} />
+            <Maximize2 size={16} />
           </button>
         </Tooltip>
 
@@ -2097,7 +1865,7 @@ export function MvpEditor() {
             style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
             aria-label="SVG出力"
           >
-            <FileCode2 size={18} />
+            <FileCode2 size={16} />
           </button>
         </Tooltip>
 
@@ -2110,7 +1878,7 @@ export function MvpEditor() {
             style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
             aria-label="PNG出力"
           >
-            <Download size={18} />
+            <Download size={16} />
           </button>
         </Tooltip>
         <select
@@ -2135,11 +1903,170 @@ export function MvpEditor() {
             style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
             aria-label="白を透過"
           >
-            <Wand2 size={18} />
+            <Wand2 size={16} />
           </button>
         </Tooltip>
 
-        {/* B-2: Save brand swatch */}
+        <div style={dividerStyle} />
+
+        {/* Tool-dependent color swatch + HSV picker */}
+        {(mode === "color" || mode === "replace-all" || mode === "brush") && (
+          <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
+            <button
+              ref={colorSwatchRef}
+              type="button"
+              onClick={() => setHsvPickerOpen((v) => !v)}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                background: selectedColor,
+                border: `2px solid ${T.color.borderMid}`,
+                cursor: "pointer",
+                padding: 0,
+                flexShrink: 0,
+              }}
+              title="HSVピッカーで色を選択"
+              aria-label="HSVピッカーを開く"
+            />
+            <input
+              type="color"
+              value={selectedColor}
+              onChange={(e) => {
+                setSelectedColor(e.target.value);
+                setHsvPickerOpen(false);
+              }}
+              style={{
+                width: 16,
+                height: 16,
+                cursor: "pointer",
+                border: `1px solid ${T.color.borderMid}`,
+                borderRadius: T.radius.sm,
+                background: "none",
+                padding: 0,
+                outline: "none",
+                opacity: 0.7,
+              }}
+              title="色を直接入力"
+            />
+            {hsvPickerOpen && (
+              <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 200 }}>
+                <HsvPicker
+                  hex={selectedColor}
+                  onChange={(h) => setSelectedColor(h)}
+                  onClose={() => setHsvPickerOpen(false)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Brush size — brush mode only */}
+        {mode === "brush" && (
+          <>
+            <span style={labelStyle}>太さ: {brushSize}</span>
+            <input
+              type="range"
+              min={1}
+              max={100}
+              value={brushSize}
+              onChange={(e) => setBrushSize(Number(e.target.value))}
+              style={{ width: 72 }}
+              title="ブラシサイズ (1-100px)"
+            />
+          </>
+        )}
+
+        {/* Tolerance — not shown in brush mode */}
+        {mode !== "brush" && (
+          <>
+            <span style={labelStyle}>許容値: {tolerance}</span>
+            <input
+              type="range"
+              min={0}
+              max={128}
+              value={tolerance}
+              onChange={(e) => setTolerance(Number(e.target.value))}
+              style={{ width: 72 }}
+              title="色許容値"
+            />
+          </>
+        )}
+
+        {/* Hole-fill — not shown in brush mode */}
+        {mode !== "brush" && (
+          <>
+            <span style={labelStyle}>穴埋め: {closeRadius}</span>
+            <input
+              type="range"
+              min={0}
+              max={5}
+              step={1}
+              value={closeRadius}
+              onChange={(e) => setCloseRadius(Number(e.target.value))}
+              style={{ width: 54 }}
+              title="穴埋め半径 (0=OFF, クロージング半径 1-5)"
+            />
+          </>
+        )}
+
+        {/* Feather radius — not shown in brush mode */}
+        {mode !== "brush" && (
+          <>
+            <span style={labelStyle}>フェザー: {featherRadius}</span>
+            <input
+              type="range"
+              min={0}
+              max={20}
+              step={1}
+              value={featherRadius}
+              onChange={(e) => setFeatherRadius(Number(e.target.value))}
+              style={{ width: 62 }}
+              title="フェザー (境界ぼかし) 0=OFF, 1-20px"
+            />
+          </>
+        )}
+
+        {/* Smooth replace — replace-all mode only */}
+        {mode === "replace-all" && (
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="境界を滑らかにブレンドして置換">
+            <input
+              type="checkbox"
+              checked={smoothReplace}
+              onChange={(e) => setSmoothReplace(e.target.checked)}
+              style={{ cursor: "pointer" }}
+            />
+            滑らかに置換
+          </label>
+        )}
+
+        {/* Antialias boundary — not brush/replace-all */}
+        {mode !== "brush" && mode !== "replace-all" && (
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
+            <input
+              type="checkbox"
+              checked={includeAntialias}
+              onChange={(e) => setIncludeAntialias(e.target.checked)}
+              style={{ cursor: "pointer" }}
+            />
+            境界含める
+          </label>
+        )}
+
+        {/* 8-neighbor connectivity — not brush/replace-all */}
+        {mode !== "brush" && mode !== "replace-all" && (
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
+            <input
+              type="checkbox"
+              checked={connectivity === 8}
+              onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
+              style={{ cursor: "pointer" }}
+            />
+            8近傍
+          </label>
+        )}
+
+        {/* Save brand swatch — color/replace-all mode */}
         {(mode === "color" || mode === "replace-all") && (
           <button
             type="button"
@@ -2151,7 +2078,7 @@ export function MvpEditor() {
           </button>
         )}
 
-        {/* B-3: Before/after comparison */}
+        {/* Before/after comparison */}
         <button
           type="button"
           onMouseDown={() => setComparing(true)}
@@ -2169,174 +2096,70 @@ export function MvpEditor() {
         >
           比較
         </button>
-
-        <div style={dividerStyle} />
-
-        {/* Panel toggles */}
-        <button
-          type="button"
-          onClick={() => setShowPalette((v) => !v)}
-          style={showPalette ? { ...btnStyle, border: `1px solid ${T.color.accent}` } : btnSubtleStyle}
-        >
-          {showPalette ? "パレット ▲" : "パレット ▼"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowMapping((v) => !v)}
-          style={showMapping ? { ...btnStyle, border: `1px solid ${T.color.accent}` } : btnSubtleStyle}
-        >
-          {showMapping ? "編集ログ ▲" : "編集ログ ▼"}
-        </button>
       </div>
 
-      {/* Palette panel */}
-      {showPalette && palette.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: T.space.xs + 2,
-            padding: `6px ${T.space.md}px`,
-            background: T.color.bgPanel,
-            borderBottom: `1px solid ${T.color.border}`,
-          }}
-        >
-          <span style={{ ...labelStyle, marginRight: T.space.xs }}>主要色:</span>
-          {palette.map((hex) => (
-            <button
-              key={hex}
-              type="button"
-              onClick={() => {
-                setSelectedColor(hex);
-                if (mode !== "color" && mode !== "replace-all") setMode("color");
-              }}
-              title={hex.toUpperCase()}
-              style={{
-                width: 22,
-                height: 22,
-                background: hex,
-                border: selectedColor === hex
-                  ? `2px solid ${T.color.accent}`
-                  : `1px solid ${T.color.borderMid}`,
-                borderRadius: T.radius.sm,
-                cursor: "pointer",
-                padding: 0,
-                flexShrink: 0,
-              }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* S3: Recent colors panel */}
-      {recentColors.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: T.space.xs + 2,
-            padding: `4px ${T.space.md}px`,
-            background: T.color.bgBase,
-            borderBottom: `1px solid ${T.color.border}`,
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ ...labelStyle, marginRight: T.space.xs }}>最近:</span>
-          {recentColors.map((hex, i) => (
-            <button
-              key={`${hex}-${i}`}
-              type="button"
-              onClick={() => {
-                setSelectedColor(hex);
-                if (mode !== "color" && mode !== "replace-all") setMode("color");
-              }}
-              title={hex.toUpperCase()}
-              style={{
-                width: 22,
-                height: 22,
-                background: hex,
-                border: selectedColor === hex
-                  ? `2px solid ${T.color.accent}`
-                  : `1px solid ${T.color.borderMid}`,
-                borderRadius: T.radius.sm,
-                cursor: "pointer",
-                padding: 0,
-                flexShrink: 0,
-                transition: "transform 80ms",
-              }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* B-2: Brand color swatches panel */}
-      {brandSwatches.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: T.space.xs + 2,
-            padding: `4px ${T.space.md}px`,
-            background: T.color.bgBase,
-            borderBottom: `1px solid ${T.color.border}`,
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ ...labelStyle, marginRight: T.space.xs }}>ブランド:</span>
-          {brandSwatches.map((hex) => (
-            <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedColor(hex);
-                  if (mode !== "color" && mode !== "replace-all") setMode("color");
-                }}
-                title={hex.toUpperCase()}
-                style={{
-                  width: 22,
-                  height: 22,
-                  background: hex,
-                  border: selectedColor === hex
-                    ? `2px solid ${T.color.accent}`
-                    : `1px solid ${T.color.borderMid}`,
-                  borderRadius: T.radius.sm,
-                  cursor: "pointer",
-                  padding: 0,
-                  flexShrink: 0,
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => handleRemoveBrandSwatch(hex)}
-                title={`${hex.toUpperCase()} を削除`}
-                style={{
-                  position: "absolute",
-                  top: -4,
-                  right: -4,
-                  width: 12,
-                  height: 12,
-                  background: T.color.swatchRemoveBg,
-                  color: T.color.textPrimary,
-                  border: "none",
-                  borderRadius: "50%",
-                  cursor: "pointer",
-                  fontSize: 8,
-                  lineHeight: "12px",
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Main area: canvas + right sidebar */}
+      {/* ===== Main body: left toolbar + canvas + right panel ===== */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+
+        {/* Left vertical toolbar */}
+        <div style={leftToolbarStyle}>
+          <Tooltip label="色変更">
+            <button
+              type="button"
+              aria-pressed={mode === "color" ? "true" : "false"}
+              onClick={() => setMode("color")}
+              style={mode === "color" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              aria-label="色変更"
+            >
+              <PaintBucket size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip label="透過">
+            <button
+              type="button"
+              aria-pressed={mode === "transparent" ? "true" : "false"}
+              onClick={() => setMode("transparent")}
+              style={mode === "transparent" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              aria-label="透過"
+            >
+              <Eraser size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip label="スポイト (I)">
+            <button
+              type="button"
+              aria-pressed={mode === "eyedropper" ? "true" : "false"}
+              onClick={() => setMode("eyedropper")}
+              style={mode === "eyedropper" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              aria-label="スポイト"
+            >
+              <Pipette size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip label="同色一括 (R)">
+            <button
+              type="button"
+              aria-pressed={mode === "replace-all" ? "true" : "false"}
+              onClick={() => setMode("replace-all")}
+              style={mode === "replace-all" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              aria-label="同色一括"
+            >
+              <Replace size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip label="ブラシ (B)">
+            <button
+              type="button"
+              aria-pressed={mode === "brush" ? "true" : "false"}
+              onClick={() => setMode("brush")}
+              style={mode === "brush" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              aria-label="ブラシ"
+            >
+              <Paintbrush size={18} />
+            </button>
+          </Tooltip>
+        </div>
+
         {/* Canvas area */}
         <div
           ref={containerRef}
@@ -2431,11 +2254,11 @@ export function MvpEditor() {
             </div>
           )}
 
-          {/* Status bar (bottom-left): hover coordinates (primary) or operation status */}
-          {baseState.imageData && (hoverInfo || status) && (
+          {/* Canvas status overlay (bottom-left) */}
+          {baseState.imageData && hoverInfo && (
             <div style={statusBarStyle}>
               <span style={statusModeLabelStyle}>[{modeLabel}]</span>
-              {hoverInfo ?? status}
+              {hoverInfo}
             </div>
           )}
 
@@ -2447,43 +2270,220 @@ export function MvpEditor() {
           )}
         </div>
 
-        {/* Mapping sidebar */}
-        {showMapping && mappingEntries.length > 0 && (
-          <div style={sidebarStyle}>
-            <div style={sidebarHeaderStyle}>
-              編集ログ ({mappingEntries.length})
+        {/* Right panel */}
+        {(showPalette || showMapping) && (
+          <div style={rightPanelStyle}>
+            {/* Panel toggle tabs */}
+            <div style={rightPanelHeaderRowStyle}>
+              <button
+                type="button"
+                onClick={() => setShowPalette((v) => !v)}
+                style={showPalette ? panelTabBtnActiveStyle : panelTabBtnStyle}
+              >
+                パレット
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowMapping((v) => !v)}
+                style={showMapping ? panelTabBtnActiveStyle : panelTabBtnStyle}
+              >
+                ログ
+              </button>
             </div>
-            <div style={sidebarScrollStyle}>
-              {mappingEntries.map((region) => (
-                <div key={region.id} style={sidebarRowStyle}>
-                  <span
-                    style={{
-                      width: 14,
-                      height: 14,
-                      background: region.color,
-                      border: `1px solid ${T.color.borderMid}`,
-                      borderRadius: T.radius.sm,
-                      flexShrink: 0,
-                      display: "inline-block",
-                    }}
-                  />
-                  <span style={sidebarColorLabelStyle}>
-                    {region.color.toUpperCase()}
-                    <br />
-                    <span style={sidebarPixelCountStyle}>{region.pixels.length}px</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRegion(region.id)}
-                    style={sidebarRemoveBtnStyle}
-                    title="このリージョンを削除"
-                  >
-                    x
-                  </button>
+
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {/* Main palette colors */}
+              {showPalette && palette.length > 0 && (
+                <div style={rightPanelSectionStyle}>
+                  <div style={rightPanelSectionHeaderStyle}>主要色</div>
+                  <div style={swatchGridStyle}>
+                    {palette.map((hex) => (
+                      <button
+                        key={hex}
+                        type="button"
+                        onClick={() => {
+                          setSelectedColor(hex);
+                          if (mode !== "color" && mode !== "replace-all") setMode("color");
+                        }}
+                        title={hex.toUpperCase()}
+                        style={{
+                          width: 22,
+                          height: 22,
+                          background: hex,
+                          border: selectedColor === hex
+                            ? `2px solid ${T.color.accent}`
+                            : `1px solid ${T.color.borderMid}`,
+                          borderRadius: T.radius.sm,
+                          cursor: "pointer",
+                          padding: 0,
+                          flexShrink: 0,
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
-              ))}
+              )}
+
+              {/* Recent colors */}
+              {showPalette && recentColors.length > 0 && (
+                <div style={rightPanelSectionStyle}>
+                  <div style={rightPanelSectionHeaderStyle}>最近</div>
+                  <div style={swatchGridStyle}>
+                    {recentColors.map((hex, i) => (
+                      <button
+                        key={`${hex}-${i}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedColor(hex);
+                          if (mode !== "color" && mode !== "replace-all") setMode("color");
+                        }}
+                        title={hex.toUpperCase()}
+                        style={{
+                          width: 22,
+                          height: 22,
+                          background: hex,
+                          border: selectedColor === hex
+                            ? `2px solid ${T.color.accent}`
+                            : `1px solid ${T.color.borderMid}`,
+                          borderRadius: T.radius.sm,
+                          cursor: "pointer",
+                          padding: 0,
+                          flexShrink: 0,
+                          transition: "transform 80ms",
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Brand color swatches */}
+              {showPalette && brandSwatches.length > 0 && (
+                <div style={rightPanelSectionStyle}>
+                  <div style={rightPanelSectionHeaderStyle}>ブランド</div>
+                  <div style={swatchGridStyle}>
+                    {brandSwatches.map((hex) => (
+                      <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedColor(hex);
+                            if (mode !== "color" && mode !== "replace-all") setMode("color");
+                          }}
+                          title={hex.toUpperCase()}
+                          style={{
+                            width: 22,
+                            height: 22,
+                            background: hex,
+                            border: selectedColor === hex
+                              ? `2px solid ${T.color.accent}`
+                              : `1px solid ${T.color.borderMid}`,
+                            borderRadius: T.radius.sm,
+                            cursor: "pointer",
+                            padding: 0,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBrandSwatch(hex)}
+                          title={`${hex.toUpperCase()} を削除`}
+                          style={{
+                            position: "absolute",
+                            top: -4,
+                            right: -4,
+                            width: 12,
+                            height: 12,
+                            background: T.color.swatchRemoveBg,
+                            color: T.color.textPrimary,
+                            border: "none",
+                            borderRadius: "50%",
+                            cursor: "pointer",
+                            fontSize: 8,
+                            lineHeight: "12px",
+                            padding: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Edit log */}
+              {showMapping && mappingEntries.length > 0 && (
+                <div style={rightPanelSectionStyle}>
+                  <div style={rightPanelSectionHeaderStyle}>
+                    編集ログ ({mappingEntries.length})
+                  </div>
+                  {mappingEntries.map((region) => (
+                    <div key={region.id} style={sidebarRowStyle}>
+                      <span
+                        style={{
+                          width: 14,
+                          height: 14,
+                          background: region.color,
+                          border: `1px solid ${T.color.borderMid}`,
+                          borderRadius: T.radius.sm,
+                          flexShrink: 0,
+                          display: "inline-block",
+                        }}
+                      />
+                      <span style={sidebarColorLabelStyle}>
+                        {region.color.toUpperCase()}
+                        <br />
+                        <span style={sidebarPixelCountStyle}>{region.pixels.length}px</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRegion(region.id)}
+                        style={sidebarRemoveBtnStyle}
+                        title="このリージョンを削除"
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
+        )}
+
+        {/* Right panel collapsed — show reopen buttons */}
+        {!showPalette && !showMapping && (
+          <div style={rightPanelCollapsedStyle}>
+            <button
+              type="button"
+              onClick={() => setShowPalette(true)}
+              style={panelTabBtnStyle}
+              title="パレットを表示"
+            >
+              P
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowMapping(true)}
+              style={panelTabBtnStyle}
+              title="ログを表示"
+            >
+              L
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ===== Status bar (bottom, full-width) ===== */}
+      <div style={bottomStatusBarStyle}>
+        <span style={statusModeLabelStyle}>[{modeLabel}]</span>
+        <span>{hoverInfo ?? status}</span>
+        {baseState.imageData && (
+          <span style={{ marginLeft: "auto", color: T.color.textDim }}>{zoomPercent}%</span>
         )}
       </div>
 
@@ -2639,30 +2639,7 @@ const dropZoneButtonStyle: React.CSSProperties = {
   borderRadius: T.radius.md,
 };
 
-// Mapping sidebar
-const sidebarStyle: React.CSSProperties = {
-  width: 220,
-  background: T.color.bgPanel,
-  borderLeft: `1px solid ${T.color.border}`,
-  display: "flex",
-  flexDirection: "column",
-  overflow: "hidden",
-};
-
-const sidebarHeaderStyle: React.CSSProperties = {
-  padding: `${T.space.xs + 2}px ${T.space.sm + 2}px`,
-  borderBottom: `1px solid ${T.color.border}`,
-  fontSize: T.font.label,
-  color: T.color.textMuted,
-  fontWeight: "bold",
-  fontFamily: T.font.family,
-};
-
-const sidebarScrollStyle: React.CSSProperties = {
-  flex: 1,
-  overflowY: "auto",
-};
-
+// Mapping sidebar rows (used in right panel)
 const sidebarRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -2713,13 +2690,6 @@ const iconBtnStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-const iconBtnActiveStyle: React.CSSProperties = {
-  ...iconBtnStyle,
-  background: T.color.accent,
-  border: `1px solid ${T.color.accent}`,
-  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.35)",
-};
-
 const iconBtnSuccessStyle: React.CSSProperties = {
   ...iconBtnStyle,
   background: T.color.success,
@@ -2735,4 +2705,123 @@ const selectStyle: React.CSSProperties = {
   fontFamily: T.font.family,
   padding: "3px 4px",
   cursor: "pointer",
+};
+
+// S4a: New layout styles
+const leftToolbarStyle: React.CSSProperties = {
+  width: 48,
+  flexShrink: 0,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: T.space.xs,
+  padding: `${T.space.sm}px 0`,
+  background: T.color.bgPanel,
+  borderRight: `1px solid ${T.color.border}`,
+  boxShadow: T.shadow.panel,
+};
+
+const leftToolBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 36,
+  height: 36,
+  padding: 0,
+  background: "transparent",
+  color: T.color.textMuted,
+  border: "none",
+  borderRadius: T.radius.md,
+  cursor: "pointer",
+  transition: "background 120ms, color 120ms",
+  flexShrink: 0,
+};
+
+const leftToolBtnActiveStyle: React.CSSProperties = {
+  ...leftToolBtnStyle,
+  background: T.color.accent,
+  color: "#fff",
+  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.35)",
+};
+
+const rightPanelStyle: React.CSSProperties = {
+  width: 200,
+  flexShrink: 0,
+  display: "flex",
+  flexDirection: "column",
+  background: T.color.bgPanel,
+  borderLeft: `1px solid ${T.color.border}`,
+  boxShadow: T.shadow.panel,
+  overflow: "hidden",
+};
+
+const rightPanelCollapsedStyle: React.CSSProperties = {
+  width: 32,
+  flexShrink: 0,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: T.space.xs,
+  padding: `${T.space.sm}px 0`,
+  background: T.color.bgPanel,
+  borderLeft: `1px solid ${T.color.border}`,
+};
+
+const rightPanelHeaderRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 0,
+  borderBottom: `1px solid ${T.color.border}`,
+  flexShrink: 0,
+};
+
+const panelTabBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: "5px 4px",
+  background: "transparent",
+  color: T.color.textMuted,
+  border: "none",
+  borderBottom: `2px solid transparent`,
+  cursor: "pointer",
+  fontSize: T.font.label,
+  fontFamily: T.font.family,
+  transition: "color 120ms",
+};
+
+const panelTabBtnActiveStyle: React.CSSProperties = {
+  ...panelTabBtnStyle,
+  color: T.color.textPrimary,
+  borderBottom: `2px solid ${T.color.accent}`,
+};
+
+const rightPanelSectionStyle: React.CSSProperties = {
+  padding: `${T.space.xs}px ${T.space.sm}px`,
+  borderBottom: `1px solid ${T.color.border}`,
+};
+
+const rightPanelSectionHeaderStyle: React.CSSProperties = {
+  fontSize: T.font.badge,
+  color: T.color.textDim,
+  fontFamily: T.font.family,
+  marginBottom: T.space.xs,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const swatchGridStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: T.space.xs,
+};
+
+const bottomStatusBarStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: T.space.sm,
+  padding: `3px ${T.space.md}px`,
+  background: T.color.bgPanel,
+  borderTop: `1px solid ${T.color.border}`,
+  fontSize: T.font.label,
+  color: T.color.textPrimary,
+  fontFamily: T.font.family,
+  flexShrink: 0,
 };
