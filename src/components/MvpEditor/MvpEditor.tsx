@@ -68,6 +68,7 @@ import { HsvPicker } from "./components/HsvPicker";
 import { Tooltip } from "./components/Tooltip";
 import { Toast, type ToastMessage } from "./components/Toast";
 import { ShortcutHelp } from "./components/ShortcutHelp";
+import { WelcomeModal, hasSeenWelcome, markWelcomeSeen } from "./components/WelcomeModal";
 import {
   ExportModal,
   getMimeType,
@@ -333,6 +334,9 @@ export function MvpEditor() {
 
   // Issue #5: autosave restore modal
   const [showRestoreModal, setShowRestoreModal] = useState<boolean>(false);
+
+  // Issue #29: welcome modal
+  const [showWelcome, setShowWelcome] = useState<boolean>(() => !hasSeenWelcome());
 
   // Issue #7: recent files dropdown
   const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>(() => getRecentFiles());
@@ -1871,6 +1875,12 @@ export function MvpEditor() {
     }
   }, [autoSave, editorHistory, showToast]);
 
+  // Issue #29: welcome modal dismiss
+  const handleWelcomeClose = useCallback(() => {
+    markWelcomeSeen();
+    setShowWelcome(false);
+  }, []);
+
   // Issue #5: Ctrl+S / Ctrl+O global shortcuts (defined after handlers to avoid forward ref)
   useEffect(() => {
     const handleProjectShortcut = (e: KeyboardEvent) => {
@@ -2896,6 +2906,16 @@ export function MvpEditor() {
               <HelpCircle size={18} />
             </button>
           </Tooltip>
+          <Tooltip label={t("welcome.reshow", lang)}>
+            <button
+              type="button"
+              onClick={() => setShowWelcome(true)}
+              style={leftToolBtnStyle}
+              aria-label={t("welcome.reshow", lang)}
+            >
+              <span style={welcomeReshowIconStyle}>?</span>
+            </button>
+          </Tooltip>
         </div>
 
         {/* Canvas area */}
@@ -3473,6 +3493,11 @@ export function MvpEditor() {
           onClose={() => setCanvasSizeModalOpen(false)}
         />
       )}
+
+      {/* Issue #29: Welcome modal */}
+      {showWelcome && (
+        <WelcomeModal lang={lang} onClose={handleWelcomeClose} />
+      )}
     </div>
   );
 }
@@ -3841,6 +3866,12 @@ const btnAccentStyle: React.CSSProperties = {
   fontSize: T.font.label,
   fontFamily: T.font.family,
   transition: "background 120ms",
+};
+
+// Issue #29: welcome modal reshow button icon
+const welcomeReshowIconStyle: React.CSSProperties = {
+  fontSize: 14,
+  lineHeight: 1,
 };
 
 const bottomStatusBarStyle: React.CSSProperties = {

@@ -168,6 +168,16 @@ export const dict: Record<Lang, Record<string, string>> = {
 
     // Language toggle
     "lang.toggle": "English",
+
+    // Welcome modal (Issue #29)
+    "welcome.title": "Choco へようこそ",
+    "welcome.intro1": "画像を開いてクリックするだけで色を変更できます",
+    "welcome.intro2": "透過ツールで背景を切り抜き、透明にできます",
+    "welcome.intro3": "SVG / PNG / JPEG でそのまま書き出せます",
+    "welcome.intro4": "パレット・ブラシ・テキスト・シェイプなど多彩なツールを搭載",
+    "welcome.hint": "ヘルプ (?) からいつでもショートカット一覧を確認できます",
+    "welcome.start": "始める",
+    "welcome.reshow": "使い方を見る",
   },
 
   en: {
@@ -326,6 +336,16 @@ export const dict: Record<Lang, Record<string, string>> = {
 
     // Language toggle
     "lang.toggle": "日本語",
+
+    // Welcome modal (Issue #29)
+    "welcome.title": "Welcome to Choco",
+    "welcome.intro1": "Open an image and click to recolor any area instantly",
+    "welcome.intro2": "Use the transparent tool to remove backgrounds with one click",
+    "welcome.intro3": "Export directly as SVG, PNG, or JPEG",
+    "welcome.intro4": "Palette, brush, text, shape tools and more included",
+    "welcome.hint": "Press ? (Help) anytime to see keyboard shortcuts",
+    "welcome.start": "Get started",
+    "welcome.reshow": "Show intro",
   },
 };
 
