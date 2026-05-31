@@ -2135,6 +2135,7 @@ export function MvpEditor() {
               type="button"
               onClick={() => { editorHistory.redo(); triggerRedraw(); setStatus(t("status.redo", lang)); }}
               disabled={!editorHistory.canRedo}
+              aria-disabled={!editorHistory.canRedo}
               style={!editorHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
               aria-label={t("label.redo", lang)}
             >
@@ -2145,6 +2146,7 @@ export function MvpEditor() {
             type="button"
             onClick={() => { editorHistory.reset(); triggerRedraw(); setStatus(t("status.reset", lang)); }}
             disabled={regions.length === 0}
+            aria-disabled={regions.length === 0}
             style={regions.length === 0 ? { ...btnDangerStyle, opacity: 0.35, pointerEvents: "none" } : btnDangerStyle}
           >
             {t("label.resetAll", lang)}
@@ -2158,6 +2160,7 @@ export function MvpEditor() {
               type="button"
               onClick={handleFit}
               disabled={!baseState.imageData}
+              aria-disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
               aria-label={t("label.fitView", lang)}
             >
@@ -2173,6 +2176,7 @@ export function MvpEditor() {
               type="button"
               onClick={handleExportSvg}
               disabled={!baseState.imageData}
+              aria-disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
               aria-label={t("label.exportSvg", lang)}
             >
@@ -2186,6 +2190,7 @@ export function MvpEditor() {
               type="button"
               onClick={() => setExportModalOpen(true)}
               disabled={!baseState.imageData}
+              aria-disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
               aria-label={t("label.exportImage", lang)}
             >
@@ -2199,6 +2204,7 @@ export function MvpEditor() {
               type="button"
               onClick={handleCopyToClipboard}
               disabled={!baseState.imageData}
+              aria-disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
               aria-label={t("label.copyClipboard", lang)}
             >
@@ -2214,6 +2220,7 @@ export function MvpEditor() {
               type="button"
               onClick={handleTransparentWhite}
               disabled={!baseState.imageData}
+              aria-disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
               aria-label={t("label.transparentWhite", lang)}
             >
@@ -2227,6 +2234,7 @@ export function MvpEditor() {
               type="button"
               onClick={() => setCanvasSizeModalOpen(true)}
               disabled={!baseState.imageData}
+              aria-disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
               aria-label={t("label.canvasSize", lang)}
             >
@@ -2367,6 +2375,7 @@ export function MvpEditor() {
             onMouseUp={() => setComparing(false)}
             onMouseLeave={() => setComparing(false)}
             disabled={!baseState.imageData || regions.length === 0}
+            aria-disabled={!baseState.imageData || regions.length === 0}
             style={
               (!baseState.imageData || regions.length === 0)
                 ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" }
@@ -2804,6 +2813,7 @@ export function MvpEditor() {
                     type="button"
                     onClick={centerAlignDraftH}
                     disabled={!baseState.imageData}
+                    aria-disabled={!baseState.imageData}
                     style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
                     aria-label="水平中央揃え"
                   >
@@ -2815,6 +2825,7 @@ export function MvpEditor() {
                     type="button"
                     onClick={centerAlignDraftV}
                     disabled={!baseState.imageData}
+                    aria-disabled={!baseState.imageData}
                     style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
                     aria-label="垂直中央揃え"
                   >
@@ -2826,6 +2837,7 @@ export function MvpEditor() {
                     type="button"
                     onClick={centerAlignDraftBoth}
                     disabled={!baseState.imageData}
+                    aria-disabled={!baseState.imageData}
                     style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
                     aria-label="画面中央"
                   >

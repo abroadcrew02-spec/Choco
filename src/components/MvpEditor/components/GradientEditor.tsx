@@ -314,6 +314,7 @@ export function GradientEditor({
                 type="button"
                 onClick={() => removeStop(idx)}
                 disabled={stops.length <= 2}
+                aria-disabled={stops.length <= 2}
                 style={{
                   background: stops.length <= 2 ? "transparent" : T.color.dangerDark,
                   color: stops.length <= 2 ? T.color.textDim : T.color.danger,
