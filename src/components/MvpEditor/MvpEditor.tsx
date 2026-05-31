@@ -1941,38 +1941,11 @@ export function MvpEditor() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        width: "100%",
-        background: T.color.bgBase,
-        color: T.color.textPrimary,
-        fontFamily: T.font.family,
-      }}
-    >
+    <div style={rootStyle}>
       {/* ===== Property Bar (top, full-width) — 2-row layout ===== */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          background: T.color.bgPanel,
-          borderBottom: `1px solid ${T.color.border}`,
-          flexShrink: 0,
-        }}
-      >
+      <div style={propertyBarStyle}>
         {/* --- Upper row: always-visible common controls --- */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: T.space.xs,
-            padding: `5px ${T.space.sm}px`,
-            flexWrap: "wrap",
-            borderBottom: `1px solid ${T.color.border}`,
-          }}
-        >
+        <div style={propertyBarUpperRowStyle}>
           {/* File open */}
           <Tooltip label={t("label.openImage", lang)}>
             <button
@@ -2036,18 +2009,7 @@ export function MvpEditor() {
               <div
                 role="listbox"
                 aria-label={t("label.recentFilesList", lang)}
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 4px)",
-                  left: 0,
-                  zIndex: 200,
-                  background: T.color.bgElevated,
-                  border: `1px solid ${T.color.borderMid}`,
-                  borderRadius: T.radius.md,
-                  boxShadow: T.shadow.elevated,
-                  minWidth: 220,
-                  padding: "4px 0",
-                }}
+                style={recentMenuDropdownStyle}
               >
                 {recentFiles.map((entry) => (
                   <button
@@ -2094,7 +2056,7 @@ export function MvpEditor() {
                         flexShrink: 0,
                       }}
                     />
-                    <div style={{ overflow: "hidden", flex: 1 }}>
+                    <div style={overflowFlex1Style}>
                       <div
                         style={{
                           fontSize: T.font.body,
@@ -2405,15 +2367,7 @@ export function MvpEditor() {
 
         {/* --- Lower row: mode-specific controls (hidden for eyedropper) --- */}
         {mode !== "eyedropper" && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: T.space.xs,
-              padding: `4px ${T.space.sm}px`,
-              flexWrap: "wrap",
-            }}
-          >
+          <div style={propertyBarLowerRowStyle}>
             {/* Color swatch + HSV picker — color / replace-all / brush modes */}
             {(mode === "color" || mode === "replace-all" || mode === "brush") && (
               <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
@@ -2852,7 +2806,7 @@ export function MvpEditor() {
       </div>
 
       {/* ===== Main body: left toolbar + canvas + right panel ===== */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      <div style={mainBodyStyle}>
 
         {/* Left vertical toolbar */}
         <div style={leftToolbarStyle}>
@@ -3134,7 +3088,7 @@ export function MvpEditor() {
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto" }}>
+            <div style={panelScrollStyle}>
               {/* Main palette colors */}
               {showPalette && palette.length > 0 && (
                 <div style={rightPanelSectionStyle}>
@@ -3206,7 +3160,7 @@ export function MvpEditor() {
                   <div style={rightPanelSectionHeaderStyle}>{t("panel.brandColors", lang)}</div>
                   <div style={swatchGridStyle}>
                     {brandSwatches.map((hex) => (
-                      <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
+                      <div key={hex} style={relativeInlineFlexStyle}>
                         <button
                           type="button"
                           onClick={() => {
@@ -3287,7 +3241,7 @@ export function MvpEditor() {
                   )}
                   {paletteSets.map((ps) => (
                     <div key={ps.id} style={{ marginBottom: T.space.xs }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                      <div style={paletteSetsRowStyle}>
                         <button
                           type="button"
                           onClick={() => setActivePaletteSetId(activePaletteSetId === ps.id ? null : ps.id)}
@@ -3331,7 +3285,7 @@ export function MvpEditor() {
                         <div>
                           <div style={{ ...swatchGridStyle, marginBottom: 4 }}>
                             {ps.colors.map((hex) => (
-                              <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
+                              <div key={hex} style={relativeInlineFlexStyle}>
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -3936,4 +3890,80 @@ const bottomStatusBarStyle: React.CSSProperties = {
   color: T.color.textPrimary,
   fontFamily: T.font.family,
   flexShrink: 0,
+};
+
+const rootStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  width: "100%",
+  background: T.color.bgBase,
+  color: T.color.textPrimary,
+  fontFamily: T.font.family,
+};
+
+const propertyBarStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  background: T.color.bgPanel,
+  borderBottom: `1px solid ${T.color.border}`,
+  flexShrink: 0,
+};
+
+const propertyBarUpperRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: T.space.xs,
+  padding: `5px ${T.space.sm}px`,
+  flexWrap: "wrap",
+  borderBottom: `1px solid ${T.color.border}`,
+};
+
+const propertyBarLowerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: T.space.xs,
+  padding: `4px ${T.space.sm}px`,
+  flexWrap: "wrap",
+};
+
+const mainBodyStyle: React.CSSProperties = {
+  display: "flex",
+  flex: 1,
+  overflow: "hidden",
+};
+
+const recentMenuDropdownStyle: React.CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 4px)",
+  left: 0,
+  zIndex: 200,
+  background: T.color.bgElevated,
+  border: `1px solid ${T.color.borderMid}`,
+  borderRadius: T.radius.md,
+  boxShadow: T.shadow.elevated,
+  minWidth: 220,
+  padding: "4px 0",
+};
+
+const overflowFlex1Style: React.CSSProperties = {
+  overflow: "hidden",
+  flex: 1,
+};
+
+const panelScrollStyle: React.CSSProperties = {
+  flex: 1,
+  overflowY: "auto",
+};
+
+const relativeInlineFlexStyle: React.CSSProperties = {
+  position: "relative",
+  display: "inline-flex",
+};
+
+const paletteSetsRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  marginBottom: 2,
 };
