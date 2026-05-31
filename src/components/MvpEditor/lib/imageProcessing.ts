@@ -985,34 +985,23 @@ export function normalizeBbox(
 }
 
 /**
- * Draws a shape (rect/circle/polygon/star) onto a 2D canvas context.
- * Applies fill and/or stroke depending on fill/stroke settings.
+ * Builds the path for a shape (rect/circle/polygon/star) onto a 2D canvas
+ * context. Assumes ctx.beginPath() has already been called. Does not apply
+ * fill or stroke.
  */
-export function drawShape(
+export function buildShapePath(
   ctx: CanvasRenderingContext2D,
   kind: ShapeKind,
   x: number,
   y: number,
   w: number,
   h: number,
-  fillColor: string | null,
-  strokeColor: string | null,
-  strokeWidth: number,
   polyVertices: number
 ): void {
-  if (w <= 0 || h <= 0) return;
-
-  ctx.save();
-  ctx.beginPath();
-
   if (kind === "rect") {
     ctx.rect(x, y, w, h);
   } else if (kind === "circle") {
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-    const rx = w / 2;
-    const ry = h / 2;
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
   } else if (kind === "polygon") {
     const n = Math.max(3, Math.min(12, polyVertices));
     const cx = x + w / 2;
@@ -1046,6 +1035,29 @@ export function drawShape(
     }
     ctx.closePath();
   }
+}
+
+/**
+ * Draws a shape (rect/circle/polygon/star) onto a 2D canvas context.
+ * Applies fill and/or stroke depending on fill/stroke settings.
+ */
+export function drawShape(
+  ctx: CanvasRenderingContext2D,
+  kind: ShapeKind,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fillColor: string | null,
+  strokeColor: string | null,
+  strokeWidth: number,
+  polyVertices: number
+): void {
+  if (w <= 0 || h <= 0) return;
+
+  ctx.save();
+  ctx.beginPath();
+  buildShapePath(ctx, kind, x, y, w, h, polyVertices);
 
   if (fillColor) {
     ctx.fillStyle = fillColor;

@@ -193,6 +193,7 @@ import {
   copyImageDataInto,
   rewriteSvgForHighResRasterize,
   normalizeBbox,
+  buildShapePath,
   drawShape,
   isAcceptedImageFile,
   isInputFocused,
@@ -1222,37 +1223,7 @@ export function MvpEditor() {
       if (useFill && fillType !== "solid" && bw > 0 && bh > 0) {
         ctx.save();
         ctx.beginPath();
-        // Build shape path
-        if (shapeKind === "rect") {
-          ctx.rect(x, y, bw, bh);
-        } else if (shapeKind === "circle") {
-          ctx.ellipse(x + bw / 2, y + bh / 2, bw / 2, bh / 2, 0, 0, Math.PI * 2);
-        } else {
-          const n = Math.max(3, Math.min(12, polyVertices));
-          const cx2 = x + bw / 2; const cy2 = y + bh / 2;
-          const rx2 = bw / 2; const ry2 = bh / 2;
-          if (shapeKind === "polygon") {
-            for (let i = 0; i < n; i++) {
-              const angle2 = (Math.PI * 2 * i) / n - Math.PI / 2;
-              const px2 = cx2 + rx2 * Math.cos(angle2);
-              const py2 = cy2 + ry2 * Math.sin(angle2);
-              if (i === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
-            }
-            ctx.closePath();
-          } else { // star
-            const outerRx = bw / 2; const outerRy = bh / 2;
-            const innerRx = outerRx * 0.4; const innerRy = outerRy * 0.4;
-            for (let i = 0; i < 10; i++) {
-              const angle2 = (Math.PI * i) / 5 - Math.PI / 2;
-              const rx3 = i % 2 === 0 ? outerRx : innerRx;
-              const ry3 = i % 2 === 0 ? outerRy : innerRy;
-              const px3 = cx2 + rx3 * Math.cos(angle2);
-              const py3 = cy2 + ry3 * Math.sin(angle2);
-              if (i === 0) ctx.moveTo(px3, py3); else ctx.lineTo(px3, py3);
-            }
-            ctx.closePath();
-          }
-        }
+        buildShapePath(ctx, shapeKind, x, y, bw, bh, polyVertices);
         if (fillType === "linearGradient") {
           applyLinearGradient(ctx, x, y, bw, bh, gradientConfig.stops, gradientConfig.angle);
         } else {

@@ -30,7 +30,7 @@ import {
   buildSvg,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
-import { copyImageDataInto } from "../../src/components/MvpEditor/lib/imageProcessing";
+import { copyImageDataInto, buildShapePath } from "../../src/components/MvpEditor/lib/imageProcessing";
 import {
   getMimeType,
   getFileExtension,
@@ -1923,5 +1923,66 @@ describe("copyImageDataInto", () => {
     expect(dest.data[1]).toBe(20);
     expect(dest.data[2]).toBe(30);
     expect(dest.data[3]).toBe(255);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #23: buildShapePath — shared path builder for polygon and star shapes
+// ---------------------------------------------------------------------------
+
+describe("buildShapePath (Issue #23)", () => {
+  function makeMockCtx() {
+    const calls: string[] = [];
+    return {
+      calls,
+      rect: vi.fn((..._args: number[]) => calls.push("rect")),
+      ellipse: vi.fn((..._args: number[]) => calls.push("ellipse")),
+      moveTo: vi.fn((..._args: number[]) => calls.push("moveTo")),
+      lineTo: vi.fn((..._args: number[]) => calls.push("lineTo")),
+      closePath: vi.fn(() => calls.push("closePath")),
+    } as unknown as CanvasRenderingContext2D & { calls: string[] };
+  }
+
+  it("rect: calls ctx.rect with correct args", () => {
+    const ctx = makeMockCtx();
+    buildShapePath(ctx, "rect", 10, 20, 100, 50, 4);
+    expect(ctx.rect).toHaveBeenCalledOnce();
+    expect(ctx.rect).toHaveBeenCalledWith(10, 20, 100, 50);
+    expect(ctx.ellipse).not.toHaveBeenCalled();
+  });
+
+  it("circle: calls ctx.ellipse with correct center and radii", () => {
+    const ctx = makeMockCtx();
+    buildShapePath(ctx, "circle", 0, 0, 100, 60, 4);
+    expect(ctx.ellipse).toHaveBeenCalledOnce();
+    expect(ctx.ellipse).toHaveBeenCalledWith(50, 30, 50, 30, 0, 0, Math.PI * 2);
+  });
+
+  it("polygon (n=5): calls moveTo once, lineTo n-1 times, then closePath", () => {
+    const ctx = makeMockCtx();
+    buildShapePath(ctx, "polygon", 0, 0, 100, 100, 5);
+    expect(ctx.moveTo).toHaveBeenCalledTimes(1);
+    expect(ctx.lineTo).toHaveBeenCalledTimes(4);
+    expect(ctx.closePath).toHaveBeenCalledOnce();
+  });
+
+  it("polygon: clamps sides to 3..12 (sides=1 -> 3, sides=20 -> 12)", () => {
+    const ctx3 = makeMockCtx();
+    buildShapePath(ctx3, "polygon", 0, 0, 100, 100, 1);
+    expect(ctx3.moveTo).toHaveBeenCalledTimes(1);
+    expect(ctx3.lineTo).toHaveBeenCalledTimes(2); // 3 total vertices
+
+    const ctx12 = makeMockCtx();
+    buildShapePath(ctx12, "polygon", 0, 0, 100, 100, 20);
+    expect(ctx12.moveTo).toHaveBeenCalledTimes(1);
+    expect(ctx12.lineTo).toHaveBeenCalledTimes(11); // 12 total vertices
+  });
+
+  it("star: calls moveTo once, lineTo 9 times (10 points total), then closePath", () => {
+    const ctx = makeMockCtx();
+    buildShapePath(ctx, "star", 0, 0, 100, 100, 4);
+    expect(ctx.moveTo).toHaveBeenCalledTimes(1);
+    expect(ctx.lineTo).toHaveBeenCalledTimes(9);
+    expect(ctx.closePath).toHaveBeenCalledOnce();
   });
 });
