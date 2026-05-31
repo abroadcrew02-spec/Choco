@@ -730,6 +730,68 @@ describe("smoothReplace regionHistory empty-push (Issue #2)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #58: feather fill regionHistory empty-push (same pattern as #2)
+// ---------------------------------------------------------------------------
+
+describe("feather fill regionHistory empty-push (Issue #58)", () => {
+  it("regions entry pushed after feather fill must be empty (no existing regions carried over)", () => {
+    // Simulate: paint one region, then do feather fill (handleFloodFill or handleReplaceAll).
+    // The history entry for the feather-fill step must be [] so that
+    // compositing only reads bakeLayer and does not double-apply regions.
+    const existingRegion: PaintRegion = {
+      id: "r1",
+      pixels: [{ x: 0, y: 0 }],
+      color: "#ff0000",
+      transparent: false,
+    };
+
+    // Before feather fill: regions = [existingRegion]
+    let regionState = urPush(makeState<PaintRegion[]>([]), [existingRegion]);
+    expect(urCurrent(regionState)).toHaveLength(1);
+
+    // Simulate feather fill: push [] (not [...regions]) — the fix for Issue #58
+    regionState = urPush(regionState, []);
+    expect(urCurrent(regionState)).toHaveLength(0);
+
+    // Undo must restore the pre-fill region list
+    regionState = urUndo(regionState);
+    expect(urCurrent(regionState)).toHaveLength(1);
+
+    // Redo must return to empty regions (bakeLayer carries the visual state)
+    regionState = urRedo(regionState);
+    expect(urCurrent(regionState)).toHaveLength(0);
+  });
+
+  it("undo/redo cycle after feather fill yields consistent regions (no double-apply)", () => {
+    // Push two paint steps then a feather-fill step, cycle undo/redo.
+    const r1: PaintRegion = { id: "r1", pixels: [{ x: 0, y: 0 }], color: "#ff0000", transparent: false };
+    const r2: PaintRegion = { id: "r2", pixels: [{ x: 1, y: 0 }], color: "#00ff00", transparent: false };
+
+    let s = makeState<PaintRegion[]>([]);
+    s = urPush(s, [r1]);
+    s = urPush(s, [r1, r2]);
+    // feather fill step must push [] (not [...regions])
+    s = urPush(s, []);
+
+    // Current: empty regions (bakeLayer holds visual)
+    expect(urCurrent(s)).toHaveLength(0);
+
+    // Undo once → back to [r1, r2]
+    s = urUndo(s);
+    expect(urCurrent(s)).toHaveLength(2);
+
+    // Undo again → back to [r1]
+    s = urUndo(s);
+    expect(urCurrent(s)).toHaveLength(1);
+
+    // Redo twice → back to feather-fill state with empty regions
+    s = urRedo(s);
+    s = urRedo(s);
+    expect(urCurrent(s)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // S2: hsv2rgb / rgb2hsv round-trip
 // ---------------------------------------------------------------------------
 

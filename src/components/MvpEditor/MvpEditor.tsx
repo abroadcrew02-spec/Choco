@@ -890,7 +890,7 @@ export function MvpEditor() {
         const newBake2 = new ImageData(new Uint8ClampedArray(w * hh * 4), w, hh);
         copyImageDataInto(newBake2, feathered);
         bakeLayerRef.current = newBake2;
-        editorHistory.push([...regions], newBake2);
+        editorHistory.push([], newBake2);
         triggerRedraw();
         addRecentColor(selectedColor);
         setStatus(`${t("status.replaceAllFeather", lang)}${featherRadius}): ${replacePixels.length}px → ${selectedColor}`);
@@ -936,7 +936,7 @@ export function MvpEditor() {
         const newBakeF = new ImageData(new Uint8ClampedArray(w2 * h2 * 4), w2, h2);
         copyImageDataInto(newBakeF, feathered);
         bakeLayerRef.current = newBakeF;
-        editorHistory.push([...regions], newBakeF);
+        editorHistory.push([], newBakeF);
         triggerRedraw();
         if (mode !== "transparent") addRecentColor(selectedColor);
         setStatus(
