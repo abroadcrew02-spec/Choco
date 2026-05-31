@@ -18,7 +18,7 @@ function App() {
         }}
       >
         <span style={{ fontWeight: "bold" }}>Choco</span>
-        <span style={{ color: "#666", fontSize: 11 }}>MVP — color / transparency / SVG export</span>
+        <span style={{ color: "#666", fontSize: 11 }}>ロゴ色塗りツール</span>
       </div>
 
       {/* Editor fills the rest */}
