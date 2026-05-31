@@ -1656,15 +1656,16 @@ export function MvpEditor() {
   // ---------------------------------------------------------------------------
 
   const handleAddPaletteSet = useCallback(() => {
-    const name = `パレット${paletteSets.length + 1}`;
-    const newSet: PaletteSet = { id: `ps-${Date.now()}`, name, colors: [] };
+    const id = `ps-${Date.now()}`;
     setPaletteSets((prev) => {
+      const name = `パレット${prev.length + 1}`;
+      const newSet: PaletteSet = { id, name, colors: [] };
       const next = [...prev, newSet].slice(-PALETTE_SETS_MAX);
       savePaletteSets(next);
       return next;
     });
-    setActivePaletteSetId(newSet.id);
-  }, [paletteSets.length]);
+    setActivePaletteSetId(id);
+  }, []);
 
   const handleAddColorToPaletteSet = useCallback((setId: string) => {
     setPaletteSets((prev) => {
