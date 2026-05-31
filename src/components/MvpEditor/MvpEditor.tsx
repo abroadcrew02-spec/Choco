@@ -11,6 +11,7 @@ import {
   Maximize2,
   FileCode2,
   Download,
+  Copy,
   Wand2,
   Type,
   Square,
@@ -1509,6 +1510,13 @@ export function MvpEditor() {
         }
         return;
       }
+      // Ctrl+C: copy composited canvas to clipboard as PNG (Issue #8)
+      // Only fires when no input element is focused (text copy is handled by browser default).
+      if (e.ctrlKey && e.key === "c" && !isInputFocused(e.target)) {
+        e.preventDefault();
+        handleCopyToClipboard();
+        return;
+      }
       // Ctrl+V: paste image from clipboard (B-1)
       if (e.ctrlKey && e.key === "v") {
         e.preventDefault();
@@ -2457,6 +2465,35 @@ export function MvpEditor() {
   }, [editorHistory, zoom, tryFitContainer]);
 
   // ---------------------------------------------------------------------------
+  // Issue #8: Copy composited canvas to clipboard as PNG
+  // ---------------------------------------------------------------------------
+
+  const handleCopyToClipboard = useCallback(() => {
+    if (!baseState.imageData) return;
+    if (!navigator.clipboard?.write) {
+      showToast("クリップボードAPIが利用できません", "error");
+      return;
+    }
+    const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
+    const offscreen = document.createElement("canvas");
+    offscreen.width = composited.width;
+    offscreen.height = composited.height;
+    const ctx = offscreen.getContext("2d")!;
+    ctx.putImageData(composited, 0, 0);
+    offscreen.toBlob((blob) => {
+      if (!blob) {
+        showToast("画像の変換に失敗しました", "error");
+        return;
+      }
+      navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(() => {
+        showToast("画像をクリップボードにコピーしました");
+      }).catch(() => {
+        showToast("クリップボードへのコピーに失敗しました", "error");
+      });
+    }, "image/png");
+  }, [baseState.imageData, regions, bakeLayerRef, showToast]);
+
+  // ---------------------------------------------------------------------------
   // B-1: Transparent white
   // ---------------------------------------------------------------------------
 
@@ -2992,6 +3029,19 @@ export function MvpEditor() {
             aria-label="画像出力"
           >
             <Download size={16} />
+          </button>
+        </Tooltip>
+
+        {/* Issue #8: Copy canvas to clipboard */}
+        <Tooltip label="クリップボードにコピー (Ctrl+C)">
+          <button
+            type="button"
+            onClick={handleCopyToClipboard}
+            disabled={!baseState.imageData}
+            style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
+            aria-label="クリップボードにコピー"
+          >
+            <Copy size={16} />
           </button>
         </Tooltip>
 

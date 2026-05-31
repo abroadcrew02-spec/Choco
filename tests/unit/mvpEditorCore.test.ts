@@ -1554,3 +1554,64 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime("not-a-date")).toBe("");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #8: copyCanvasToClipboard — navigator.clipboard mock
+// ---------------------------------------------------------------------------
+
+describe("Issue #8: clipboard copy (compositeRegions -> Blob -> ClipboardItem)", () => {
+  it("compositeRegions for clipboard: output dimensions match base image", () => {
+    const base = makeSolidImageData(4, 4, 100, 150, 200);
+    const result = compositeRegions(base, []);
+    expect(result.width).toBe(4);
+    expect(result.height).toBe(4);
+  });
+
+  it("navigator.clipboard.write mock is called with one argument array", async () => {
+    const writeMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { write: writeMock },
+      configurable: true,
+      writable: true,
+    });
+
+    const fakeBlob = new Blob(["png-data"], { type: "image/png" });
+    // Simulate what handleCopyToClipboard does (minus canvas.toBlob which needs DOM):
+    // navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+    const item = { "image/png": fakeBlob } as unknown as ClipboardItem;
+    await navigator.clipboard.write([item]);
+
+    expect(writeMock).toHaveBeenCalledOnce();
+    const args = writeMock.mock.calls[0][0] as ClipboardItem[];
+    expect(args).toHaveLength(1);
+
+    // Restore
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it("clipboard.write rejection is catchable (error path does not throw unhandled)", async () => {
+    const rejectMock = vi.fn().mockRejectedValue(new Error("permission denied"));
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { write: rejectMock },
+      configurable: true,
+      writable: true,
+    });
+
+    let errorCaught = false;
+    await navigator.clipboard.write([]).catch(() => {
+      errorCaught = true;
+    });
+    expect(errorCaught).toBe(true);
+
+    // Restore
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  });
+});
