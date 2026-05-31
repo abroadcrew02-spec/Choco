@@ -8,7 +8,7 @@
  * - UndoRedo state machine: history limit 10, undo/redo chains
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import {
   compositeRegions,
   floodFillSelect,
@@ -27,6 +27,13 @@ import {
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 import { hsv2rgb, rgb2hsv } from "../../src/components/MvpEditor/components/HsvPicker";
+import {
+  buildCssLinearGradient,
+  buildCssRadialGradient,
+  applyLinearGradient,
+  applyRadialGradient,
+  type GradientStop,
+} from "../../src/components/MvpEditor/components/GradientEditor";
 
 // jsdom does not implement ImageData. Provide a minimal polyfill.
 beforeAll(() => {
@@ -848,5 +855,112 @@ describe("normalizeBbox", () => {
     const a = normalizeBbox(5, 10, 25, 40);
     const b = normalizeBbox(25, 40, 5, 10);
     expect(a).toEqual(b);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S7: GradientEditor pure helpers
+// ---------------------------------------------------------------------------
+
+describe("buildCssLinearGradient", () => {
+  it("generates correct CSS with two stops", () => {
+    const stops: GradientStop[] = [
+      { position: 0, color: "#ff0000" },
+      { position: 1, color: "#0000ff" },
+    ];
+    const css = buildCssLinearGradient(stops, 90);
+    expect(css).toContain("linear-gradient(90deg");
+    expect(css).toContain("#ff0000 0%");
+    expect(css).toContain("#0000ff 100%");
+  });
+
+  it("sorts stops by position before building CSS", () => {
+    const stops: GradientStop[] = [
+      { position: 1, color: "#0000ff" },
+      { position: 0, color: "#ff0000" },
+    ];
+    const css = buildCssLinearGradient(stops, 0);
+    // #ff0000 at 0% should come before #0000ff at 100%
+    const idxRed = css.indexOf("#ff0000 0%");
+    const idxBlue = css.indexOf("#0000ff 100%");
+    expect(idxRed).toBeLessThan(idxBlue);
+  });
+
+  it("returns 'transparent' for empty stop list", () => {
+    expect(buildCssLinearGradient([], 45)).toBe("transparent");
+  });
+});
+
+describe("buildCssRadialGradient", () => {
+  it("generates correct CSS with two stops", () => {
+    const stops: GradientStop[] = [
+      { position: 0, color: "#ffffff" },
+      { position: 1, color: "#000000" },
+    ];
+    const css = buildCssRadialGradient(stops);
+    expect(css).toContain("radial-gradient(ellipse at center");
+    expect(css).toContain("#ffffff 0%");
+    expect(css).toContain("#000000 100%");
+  });
+
+  it("returns 'transparent' for empty stop list", () => {
+    expect(buildCssRadialGradient([])).toBe("transparent");
+  });
+});
+
+describe("applyLinearGradient", () => {
+  it("calls createLinearGradient and addColorStop without throwing", () => {
+    const mockGrad = { addColorStop: vi.fn() };
+    const ctx = {
+      createLinearGradient: vi.fn(() => mockGrad),
+      fillStyle: "",
+    } as unknown as CanvasRenderingContext2D;
+
+    const stops: GradientStop[] = [
+      { position: 0, color: "#ff0000" },
+      { position: 1, color: "#0000ff" },
+    ];
+    applyLinearGradient(ctx, 0, 0, 100, 50, stops, 90);
+    expect(ctx.createLinearGradient).toHaveBeenCalledOnce();
+    expect(mockGrad.addColorStop).toHaveBeenCalledTimes(2);
+    // fillStyle should be the gradient object
+    expect(ctx.fillStyle).toBe(mockGrad);
+  });
+
+  it("clamps stop positions to [0, 1]", () => {
+    const mockGrad = { addColorStop: vi.fn() };
+    const ctx = {
+      createLinearGradient: vi.fn(() => mockGrad),
+      fillStyle: "",
+    } as unknown as CanvasRenderingContext2D;
+
+    const stops: GradientStop[] = [
+      { position: -0.5, color: "#ff0000" },
+      { position: 1.5, color: "#0000ff" },
+    ];
+    applyLinearGradient(ctx, 0, 0, 100, 50, stops, 0);
+    const calls = mockGrad.addColorStop.mock.calls;
+    expect(calls[0][0]).toBeGreaterThanOrEqual(0);
+    expect(calls[1][0]).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("applyRadialGradient", () => {
+  it("calls createRadialGradient and addColorStop without throwing", () => {
+    const mockGrad = { addColorStop: vi.fn() };
+    const ctx = {
+      createRadialGradient: vi.fn(() => mockGrad),
+      fillStyle: "",
+    } as unknown as CanvasRenderingContext2D;
+
+    const stops: GradientStop[] = [
+      { position: 0, color: "#ff0000" },
+      { position: 0.5, color: "#00ff00" },
+      { position: 1, color: "#0000ff" },
+    ];
+    applyRadialGradient(ctx, 10, 10, 80, 60, stops);
+    expect(ctx.createRadialGradient).toHaveBeenCalledOnce();
+    expect(mockGrad.addColorStop).toHaveBeenCalledTimes(3);
+    expect(ctx.fillStyle).toBe(mockGrad);
   });
 });

@@ -14,7 +14,17 @@ import {
   Wand2,
   Type,
   Square,
+  Droplets,
+  Layers,
 } from "lucide-react";
+import {
+  GradientEditor,
+  type FillType,
+  type GradientConfig,
+  DEFAULT_GRADIENT_CONFIG,
+  applyLinearGradient,
+  applyRadialGradient,
+} from "./components/GradientEditor";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
 import { HsvPicker } from "./components/HsvPicker";
@@ -1202,6 +1212,18 @@ export function MvpEditor() {
   const [useFill, setUseFill] = useState<boolean>(true);
   const [useStroke, setUseStroke] = useState<boolean>(true);
 
+  // S7: opacity (0-100, default 100)
+  const [opacity, setOpacity] = useState<number>(100);
+
+  // S7: blend mode
+  type BlendMode = "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten";
+  const [blendMode, setBlendMode] = useState<BlendMode>("normal");
+
+  // S7: fill type + gradient config
+  const [fillType, setFillType] = useState<FillType>("solid");
+  const [gradientConfig, setGradientConfig] = useState<GradientConfig>(DEFAULT_GRADIENT_CONFIG);
+  const [gradientEditorOpen, setGradientEditorOpen] = useState<boolean>(false);
+
   const zoom = useZoomPan(spacePressed);
 
   // ---------------------------------------------------------------------------
@@ -1766,16 +1788,20 @@ export function MvpEditor() {
       brushLastPosRef.current = { x, y };
 
       // Draw initial dot
+      sctx.save();
+      sctx.globalAlpha = opacity / 100;
+      if (blendMode !== "normal") sctx.globalCompositeOperation = blendMode as GlobalCompositeOperation;
       sctx.fillStyle = selectedColor;
       sctx.beginPath();
       sctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
       sctx.fill();
+      sctx.restore();
 
       // Merge stroke canvas into bakeLayer
       mergeBrushStroke(w, h);
       triggerRedraw();
     },
-    [mode, spacePressed, baseState, getCanvasCoords, selectedColor, brushSize, triggerRedraw]
+    [mode, spacePressed, baseState, getCanvasCoords, selectedColor, brushSize, opacity, blendMode, triggerRedraw]
   );
 
   const handleBrushMouseMove = useCallback(
@@ -1792,6 +1818,9 @@ export function MvpEditor() {
       const sctx = sc.getContext("2d")!;
 
       // Draw line from last to current position (HTML prototype: line method)
+      sctx.save();
+      sctx.globalAlpha = opacity / 100;
+      if (blendMode !== "normal") sctx.globalCompositeOperation = blendMode as GlobalCompositeOperation;
       sctx.strokeStyle = selectedColor;
       sctx.lineWidth = brushSize;
       sctx.lineCap = "round";
@@ -1799,12 +1828,13 @@ export function MvpEditor() {
       sctx.moveTo(last.x, last.y);
       sctx.lineTo(x, y);
       sctx.stroke();
+      sctx.restore();
 
       brushLastPosRef.current = { x, y };
       mergeBrushStroke(baseState.naturalWidth, baseState.naturalHeight);
       triggerRedraw();
     },
-    [mode, baseState, getCanvasCoords, selectedColor, brushSize, triggerRedraw]
+    [mode, baseState, getCanvasCoords, selectedColor, brushSize, opacity, blendMode, triggerRedraw]
   );
 
   const handleBrushMouseUp = useCallback(() => {
@@ -1878,11 +1908,27 @@ export function MvpEditor() {
 
       // Draw text
       const fontStr = `${textFontSize}px ${textFontFamily}`;
+      ctx.save();
+      ctx.globalAlpha = opacity / 100;
+      if (blendMode !== "normal") ctx.globalCompositeOperation = blendMode as GlobalCompositeOperation;
       ctx.font = fontStr;
       ctx.textBaseline = "top";
 
       if (useFill) {
-        ctx.fillStyle = selectedColor;
+        if (fillType === "linearGradient") {
+          // Measure text to approximate bounding box for gradient
+          const metrics = ctx.measureText(draft.value);
+          const tw = metrics.width;
+          const th = textFontSize;
+          applyLinearGradient(ctx, draft.x, draft.y, tw, th, gradientConfig.stops, gradientConfig.angle);
+        } else if (fillType === "radialGradient") {
+          const metrics = ctx.measureText(draft.value);
+          const tw = metrics.width;
+          const th = textFontSize;
+          applyRadialGradient(ctx, draft.x, draft.y, tw, th, gradientConfig.stops);
+        } else {
+          ctx.fillStyle = selectedColor;
+        }
         ctx.fillText(draft.value, draft.x, draft.y);
       }
       if (useStroke && strokeWidth > 0) {
@@ -1890,6 +1936,7 @@ export function MvpEditor() {
         ctx.lineWidth = strokeWidth;
         ctx.strokeText(draft.value, draft.x, draft.y);
       }
+      ctx.restore();
 
       const newBake = ctx.getImageData(0, 0, w, h);
       bakeLayerRef.current = newBake;
@@ -1900,7 +1947,7 @@ export function MvpEditor() {
       setStatus(`テキスト描画: "${draft.value}"`);
       setTextDraft(null);
     },
-    [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
+    [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
   );
 
   // ---------------------------------------------------------------------------
@@ -1966,15 +2013,70 @@ export function MvpEditor() {
       const ctx = offscreen.getContext("2d")!;
       ctx.putImageData(bakeLayerRef.current, 0, 0);
 
-      drawShape(
-        ctx,
-        shapeKind,
-        x, y, bw, bh,
-        useFill ? selectedColor : null,
-        useStroke && strokeWidth > 0 ? strokeColor : null,
-        strokeWidth,
-        polyVertices
-      );
+      // S7: apply opacity + blend mode
+      ctx.save();
+      ctx.globalAlpha = opacity / 100;
+      if (blendMode !== "normal") ctx.globalCompositeOperation = blendMode as GlobalCompositeOperation;
+
+      // S7: apply gradient fill if selected
+      if (useFill && fillType !== "solid" && bw > 0 && bh > 0) {
+        ctx.save();
+        ctx.beginPath();
+        // Build shape path
+        if (shapeKind === "rect") {
+          ctx.rect(x, y, bw, bh);
+        } else if (shapeKind === "circle") {
+          ctx.ellipse(x + bw / 2, y + bh / 2, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+        } else {
+          const n = Math.max(3, Math.min(12, polyVertices));
+          const cx2 = x + bw / 2; const cy2 = y + bh / 2;
+          const rx2 = bw / 2; const ry2 = bh / 2;
+          if (shapeKind === "polygon") {
+            for (let i = 0; i < n; i++) {
+              const angle2 = (Math.PI * 2 * i) / n - Math.PI / 2;
+              const px2 = cx2 + rx2 * Math.cos(angle2);
+              const py2 = cy2 + ry2 * Math.sin(angle2);
+              if (i === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+            }
+            ctx.closePath();
+          } else { // star
+            const outerRx = bw / 2; const outerRy = bh / 2;
+            const innerRx = outerRx * 0.4; const innerRy = outerRy * 0.4;
+            for (let i = 0; i < 10; i++) {
+              const angle2 = (Math.PI * i) / 5 - Math.PI / 2;
+              const rx3 = i % 2 === 0 ? outerRx : innerRx;
+              const ry3 = i % 2 === 0 ? outerRy : innerRy;
+              const px3 = cx2 + rx3 * Math.cos(angle2);
+              const py3 = cy2 + ry3 * Math.sin(angle2);
+              if (i === 0) ctx.moveTo(px3, py3); else ctx.lineTo(px3, py3);
+            }
+            ctx.closePath();
+          }
+        }
+        if (fillType === "linearGradient") {
+          applyLinearGradient(ctx, x, y, bw, bh, gradientConfig.stops, gradientConfig.angle);
+        } else {
+          applyRadialGradient(ctx, x, y, bw, bh, gradientConfig.stops);
+        }
+        ctx.fill();
+        if (useStroke && strokeWidth > 0) {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.stroke();
+        }
+        ctx.restore();
+      } else {
+        drawShape(
+          ctx,
+          shapeKind,
+          x, y, bw, bh,
+          useFill ? selectedColor : null,
+          useStroke && strokeWidth > 0 ? strokeColor : null,
+          strokeWidth,
+          polyVertices
+        );
+      }
+      ctx.restore();
 
       const newBake = ctx.getImageData(0, 0, w, h);
       bakeLayerRef.current = newBake;
@@ -1991,7 +2093,7 @@ export function MvpEditor() {
       addRecentColor(selectedColor);
       setStatus(`シェイプ描画: ${shapeKind}`);
     },
-    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
+    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
   );
 
   // ---------------------------------------------------------------------------
@@ -2722,6 +2824,98 @@ export function MvpEditor() {
             )}
           </>
         )}
+
+        <div style={dividerStyle} />
+
+        {/* S7: Opacity slider */}
+        <Tooltip label="不透明度">
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <Droplets size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
+          </span>
+        </Tooltip>
+        <span style={labelStyle}>{opacity}%</span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={opacity}
+          onChange={(e) => setOpacity(Number(e.target.value))}
+          style={{ width: 62 }}
+          title={`不透明度: ${opacity}%`}
+        />
+
+        {/* S7: Blend mode */}
+        <Tooltip label="ブレンドモード">
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <Layers size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
+          </span>
+        </Tooltip>
+        <select
+          value={blendMode}
+          onChange={(e) => setBlendMode(e.target.value as "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten")}
+          style={selectStyle}
+          title="ブレンドモード"
+        >
+          <option value="normal">通常</option>
+          <option value="multiply">乗算</option>
+          <option value="screen">スクリーン</option>
+          <option value="overlay">オーバーレイ</option>
+          <option value="darken">暗く</option>
+          <option value="lighten">明るく</option>
+        </select>
+
+        {/* S7: Gradient fill button — shown in brush/text/shape modes */}
+        {(mode === "brush" || mode === "text" || mode === "shape") && (
+          <>
+            <div style={dividerStyle} />
+            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+              <Tooltip label="グラデーション設定">
+                <button
+                  type="button"
+                  onClick={() => setGradientEditorOpen((v) => !v)}
+                  style={{
+                    ...iconBtnStyle,
+                    background: gradientEditorOpen ? T.color.accent : T.color.bgElevated,
+                    border: `1px solid ${gradientEditorOpen ? T.color.accent : T.color.borderMid}`,
+                    padding: "0 6px",
+                    width: "auto",
+                    gap: 4,
+                    fontSize: T.font.label,
+                  }}
+                  aria-label="グラデーション設定"
+                >
+                  <span style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 2,
+                    background: fillType === "solid"
+                      ? selectedColor
+                      : fillType === "linearGradient"
+                        ? `linear-gradient(90deg, ${gradientConfig.stops[0]?.color ?? "#ff0000"}, ${gradientConfig.stops[gradientConfig.stops.length - 1]?.color ?? "#0000ff"})`
+                        : `radial-gradient(circle, ${gradientConfig.stops[0]?.color ?? "#ff0000"}, ${gradientConfig.stops[gradientConfig.stops.length - 1]?.color ?? "#0000ff"})`,
+                    border: `1px solid ${T.color.borderMid}`,
+                    flexShrink: 0,
+                    display: "inline-block",
+                  }} />
+                  塗り
+                </button>
+              </Tooltip>
+              {gradientEditorOpen && (
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 300 }}>
+                  <GradientEditor
+                    fillType={fillType}
+                    gradientConfig={gradientConfig}
+                    onFillTypeChange={setFillType}
+                    onGradientConfigChange={setGradientConfig}
+                    onClose={() => setGradientEditorOpen(false)}
+                  />
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <div style={dividerStyle} />
 
         {/* Before/after comparison */}
         <button
