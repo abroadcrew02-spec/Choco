@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 10.0;
@@ -29,6 +29,13 @@ export function useZoomPan(spacePressed: boolean): UseZoomPanReturn {
   const [offsetY, setOffsetY] = useState(0);
   const [isPanning, setIsPanning] = useState(false);
 
+  // Always holds the latest committed offset values so that onMouseDown can
+  // read them without capturing stale closure values.
+  const offsetRef = useRef({ x: offsetX, y: offsetY });
+  useEffect(() => {
+    offsetRef.current = { x: offsetX, y: offsetY };
+  }, [offsetX, offsetY]);
+
   const panStartRef = useRef<{ mouseX: number; mouseY: number; offsetX: number; offsetY: number } | null>(null);
 
   const clampScale = (s: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s));
@@ -56,14 +63,15 @@ export function useZoomPan(spacePressed: boolean): UseZoomPanReturn {
       if (!spacePressed) return;
       e.preventDefault();
       setIsPanning(true);
+      // Read from ref to avoid stale closure over offsetX/offsetY state.
       panStartRef.current = {
         mouseX: e.clientX,
         mouseY: e.clientY,
-        offsetX,
-        offsetY,
+        offsetX: offsetRef.current.x,
+        offsetY: offsetRef.current.y,
       };
     },
-    [spacePressed, offsetX, offsetY]
+    [spacePressed]
   );
 
   const onMouseMove = useCallback(
