@@ -227,6 +227,7 @@ import {
   closeMask,
   blurMask,
   applyFeatheredFill,
+  copyImageDataInto,
   rewriteSvgForHighResRasterize,
   normalizeBbox,
   drawShape,
@@ -857,11 +858,7 @@ export function MvpEditor() {
         const w = baseState.naturalWidth;
         const h = baseState.naturalHeight;
         const newBake = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
-        const srcData = newImageData.data;
-        const bakeData = newBake.data;
-        for (let i = 0; i < w * h * 4; i++) {
-          bakeData[i] = srcData[i];
-        }
+        copyImageDataInto(newBake, newImageData);
         bakeLayerRef.current = newBake;
         editorHistory.push([], newBake);
         triggerRedraw();
@@ -883,9 +880,7 @@ export function MvpEditor() {
         const w = baseState.naturalWidth;
         const hh = baseState.naturalHeight;
         const newBake2 = new ImageData(new Uint8ClampedArray(w * hh * 4), w, hh);
-        const srcData = feathered.data;
-        const bakeData2 = newBake2.data;
-        for (let idx2 = 0; idx2 < w * hh * 4; idx2++) bakeData2[idx2] = srcData[idx2];
+        copyImageDataInto(newBake2, feathered);
         bakeLayerRef.current = newBake2;
         editorHistory.push([...regions], newBake2);
         triggerRedraw();
@@ -931,9 +926,7 @@ export function MvpEditor() {
         const w2 = baseState.naturalWidth;
         const h2 = baseState.naturalHeight;
         const newBakeF = new ImageData(new Uint8ClampedArray(w2 * h2 * 4), w2, h2);
-        const srcDataF = feathered.data;
-        const bakeDataF = newBakeF.data;
-        for (let idxF = 0; idxF < w2 * h2 * 4; idxF++) bakeDataF[idxF] = srcDataF[idxF];
+        copyImageDataInto(newBakeF, feathered);
         bakeLayerRef.current = newBakeF;
         editorHistory.push([...regions], newBakeF);
         triggerRedraw();

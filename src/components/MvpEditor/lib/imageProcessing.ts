@@ -1070,6 +1070,15 @@ export function isAcceptedImageFile(file: { type: string; name: string }): boole
 }
 
 /**
+ * Copies all pixel data from src into dest in-place.
+ * dest and src must have the same dimensions.
+ * Uses TypedArray.set() for a single bulk copy instead of a manual loop.
+ */
+export function copyImageDataInto(dest: ImageData, src: ImageData): void {
+  dest.data.set(src.data);
+}
+
+/**
  * Returns true when a keyboard event's target is an editable element
  * (input, textarea, or contenteditable). Used to suppress bare tool
  * shortcuts while the user is typing.

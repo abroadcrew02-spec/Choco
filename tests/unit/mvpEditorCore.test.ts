@@ -30,6 +30,7 @@ import {
   buildSvg,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
+import { copyImageDataInto } from "../../src/components/MvpEditor/lib/imageProcessing";
 import {
   getMimeType,
   getFileExtension,
@@ -1897,5 +1898,30 @@ describe("Issue #15: exportImageData uses toBlob + objectURL (no base64 hold)", 
     expect(svg).toContain('href="data:image/png;base64,');
 
     vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #19: copyImageDataInto — unified bake-layer copy helper
+// ---------------------------------------------------------------------------
+
+describe("copyImageDataInto", () => {
+  it("copies all pixel data from src into dest", () => {
+    const src = makeSolidImageData(2, 2, 255, 128, 64);
+    const dest = new ImageData(new Uint8ClampedArray(2 * 2 * 4), 2, 2);
+    copyImageDataInto(dest, src);
+    for (let i = 0; i < src.data.length; i++) {
+      expect(dest.data[i]).toBe(src.data[i]);
+    }
+  });
+
+  it("overwrites existing dest data with src data", () => {
+    const src = makeSolidImageData(2, 2, 10, 20, 30);
+    const dest = makeSolidImageData(2, 2, 200, 200, 200);
+    copyImageDataInto(dest, src);
+    expect(dest.data[0]).toBe(10);
+    expect(dest.data[1]).toBe(20);
+    expect(dest.data[2]).toBe(30);
+    expect(dest.data[3]).toBe(255);
   });
 });
