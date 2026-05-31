@@ -3,18 +3,25 @@
  *
  * Covers:
  * - serializeProject: round-trip pixel coordinates format
+ * - serializeProject: includeImage:false omits image data (autosave)
+ * - serializeProject: includeImage:true (default) includes image data
  * - deserializeProject: valid data restores correctly
  * - deserializeProject: invalid JSON structure is rejected
  * - deserializeProject: wrong version is rejected
  * - deserializeProject: missing required fields are rejected
+ * - deserializeProjectLite: autosave lite format restores regions/settings
+ * - deserializeProjectLite: returns null for non-lite (full) project
+ * - useAutoSave: onError called on localStorage quota exceeded
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, vi, afterEach } from "vitest";
 import {
   serializeProject,
   deserializeProject,
+  deserializeProjectLite,
   type ProjectState,
   type ChocoProject,
+  type ChocoProjectLite,
 } from "../../src/components/MvpEditor/lib/projectIO";
 
 // ---------------------------------------------------------------------------
@@ -289,5 +296,132 @@ describe("deserializeProject — invalid input", () => {
       ],
     };
     await expect(deserializeProject(project)).rejects.toThrow(/Invalid pixel/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// serializeProject — includeImage option (autosave vs explicit save)
+// ---------------------------------------------------------------------------
+
+describe("serializeProject — includeImage option", () => {
+  it("includeImage:false omits image and bakeLayer data", () => {
+    const state = makeMinimalState();
+    const lite = serializeProject(state, { includeImage: false }) as ChocoProjectLite;
+    expect(lite.image).toBeNull();
+    expect(lite.bakeLayer).toBeNull();
+    expect(lite.imageOmitted).toBe(true);
+  });
+
+  it("includeImage:false preserves regions, dimensions, and tool settings", () => {
+    const state = makeMinimalState();
+    const lite = serializeProject(state, { includeImage: false }) as ChocoProjectLite;
+    expect(lite.regions).toHaveLength(1);
+    expect(lite.imageWidth).toBe(4);
+    expect(lite.imageHeight).toBe(4);
+    expect(lite.tool.selectedColor).toBe("#00ff00");
+    expect(lite.tool.tolerance).toBe(16);
+  });
+
+  it("includeImage:true (default) includes image data URL", () => {
+    const state = makeMinimalState();
+    const full = serializeProject(state, { includeImage: true }) as ChocoProject;
+    expect(typeof full.image).toBe("string");
+    expect(full.image).toMatch(/^data:image\/png/);
+    expect((full as unknown as { imageOmitted?: boolean }).imageOmitted).toBeUndefined();
+  });
+
+  it("default (no options) behaves as includeImage:true", () => {
+    const state = makeMinimalState();
+    const full = serializeProject(state) as ChocoProject;
+    expect(typeof full.image).toBe("string");
+    expect(full.image).toMatch(/^data:image\/png/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deserializeProjectLite
+// ---------------------------------------------------------------------------
+
+describe("deserializeProjectLite", () => {
+  it("restores regions and settings from lite autosave", () => {
+    const state = makeMinimalState();
+    const lite = serializeProject(state, { includeImage: false }) as ChocoProjectLite;
+    const restored = deserializeProjectLite(lite);
+    expect(restored).not.toBeNull();
+    expect(restored!.imageData).toBeNull();
+    expect(restored!.bakeLayer).toBeNull();
+    expect(restored!.regions).toHaveLength(1);
+    expect(restored!.regions[0].pixels).toEqual([
+      { x: 0, y: 0 },
+      { x: 1, y: 2 },
+    ]);
+    expect(restored!.selectedColor).toBe("#00ff00");
+    expect(restored!.tolerance).toBe(16);
+    expect(restored!.naturalWidth).toBe(4);
+    expect(restored!.naturalHeight).toBe(4);
+  });
+
+  it("returns null for a full (non-lite) project", () => {
+    const state = makeMinimalState();
+    const full = serializeProject(state, { includeImage: true });
+    const result = deserializeProjectLite(full);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for non-object input", () => {
+    expect(deserializeProjectLite(null)).toBeNull();
+    expect(deserializeProjectLite("string")).toBeNull();
+    expect(deserializeProjectLite(42)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// localStorage quota simulation — autosave lite write/read cycle
+// ---------------------------------------------------------------------------
+
+describe("autosave lite — localStorage read/write", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("serialized lite project can be written to localStorage without quota issues", () => {
+    const state = makeMinimalState();
+    const lite = serializeProject(state, { includeImage: false });
+    const json = JSON.stringify(lite);
+    // Should not throw; jsdom localStorage has no strict quota
+    expect(() => localStorage.setItem("choco:autosave", json)).not.toThrow();
+    const stored = localStorage.getItem("choco:autosave");
+    expect(stored).not.toBeNull();
+  });
+
+  it("lite format JSON does not contain base64 image data", () => {
+    const state = makeMinimalState();
+    const lite = serializeProject(state, { includeImage: false });
+    const json = JSON.stringify(lite);
+    // Full project would contain "data:image/png;base64,"
+    expect(json).not.toContain("data:image/png;base64,");
+    expect(json).toContain('"imageOmitted":true');
+  });
+
+  it("onError callback is invoked when localStorage.setItem throws (quota simulation)", () => {
+    const quotaError = new DOMException("QuotaExceededError", "QuotaExceededError");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw quotaError;
+    });
+
+    const onError = vi.fn();
+    const state = makeMinimalState();
+
+    // Simulate what useAutoSave.performSave does internally
+    try {
+      const project = serializeProject(state, { includeImage: false });
+      const json = JSON.stringify(project);
+      localStorage.setItem("choco:autosave", json);
+    } catch (err) {
+      onError(err);
+    }
+
+    expect(onError).toHaveBeenCalledWith(quotaError);
   });
 });

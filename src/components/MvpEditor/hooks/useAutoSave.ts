@@ -5,18 +5,21 @@
  * at a 5-minute interval and checks for a saved session on mount.
  *
  * Storage key: "choco:autosave"
- * Format: JSON-serialized ChocoProject (version 1)
+ * Format: JSON-serialized ChocoProjectLite (version 1, imageOmitted: true)
  *
- * Note: localStorage access is synchronous. For very large images
- * this may briefly block the UI. Full async migration is deferred to
- * a future issue.
+ * Image data is intentionally excluded from autosave to prevent localStorage
+ * quota exhaustion (a full-resolution PNG can exceed the 5-10 MB quota limit).
+ * Explicit .choco file saves still include the full image.
+ *
+ * Note: Full async migration to IndexedDB is deferred to a future issue.
  */
 
 import { useEffect, useRef, useCallback } from "react";
 import {
   serializeProject,
-  deserializeProject,
+  deserializeProjectLite,
   type ProjectState,
+  type ProjectStateLite,
 } from "../lib/projectIO";
 
 export const AUTOSAVE_KEY = "choco:autosave";
@@ -34,8 +37,12 @@ export interface AutoSaveResult {
   clearAutoSave: () => void;
   /** Returns true if there is an autosave entry in localStorage. */
   hasAutoSave: () => boolean;
-  /** Loads and deserializes the autosave entry, or null if absent / invalid. */
-  loadAutoSave: () => Promise<ProjectState | null>;
+  /**
+   * Loads and deserializes the autosave entry.
+   * Returns a ProjectStateLite (imageData: null) for lite autosaves, or null
+   * if no autosave exists or deserialization fails.
+   */
+  loadAutoSave: () => Promise<ProjectStateLite | null>;
   /** Manually triggers an immediate save (in addition to the interval). */
   saveNow: () => void;
 }
@@ -71,12 +78,12 @@ export function useAutoSave(
     getStateRef.current = getState;
   }, [getState]);
 
-  // The interval-based save
+  // The interval-based save — image is excluded to avoid localStorage quota issues.
   const performSave = useCallback(() => {
     const state = getStateRef.current();
     if (!state) return;
     try {
-      const project = serializeProject(state);
+      const project = serializeProject(state, { includeImage: false });
       const json = JSON.stringify(project);
       localStorage.setItem(AUTOSAVE_KEY, json);
       onSaveRef.current?.();
@@ -108,12 +115,12 @@ export function useAutoSave(
     }
   }, []);
 
-  const loadAutoSave = useCallback(async (): Promise<ProjectState | null> => {
+  const loadAutoSave = useCallback(async (): Promise<ProjectStateLite | null> => {
     try {
       const raw = localStorage.getItem(AUTOSAVE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as unknown;
-      return await deserializeProject(parsed);
+      return deserializeProjectLite(parsed);
     } catch (err) {
       console.warn("[useAutoSave] Failed to load autosave:", err);
       return null;

@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 //   onDismiss — called when the toast finishes exiting
 //
 
-export type ToastType = "success" | "error";
+export type ToastType = "success" | "error" | "info";
 
 export interface ToastMessage {
   message: string;
@@ -33,6 +33,7 @@ interface ToastProps {
 
 const SUCCESS_BG = "#4caf7d";
 const ERROR_BG = "#e05555";
+const INFO_BG = "#4f8ef7";
 
 export function Toast({ toast, onDismiss }: ToastProps) {
   const [phase, setPhase] = useState<ToastPhase>("idle");
@@ -67,7 +68,10 @@ export function Toast({ toast, onDismiss }: ToastProps) {
   const isExiting = phase === "exiting";
   const opacity = isEntering || isExiting ? 0 : 1;
   const translateY = isEntering ? -8 : isExiting ? -8 : 0;
-  const bgColor = displayedToast.type === "error" ? ERROR_BG : SUCCESS_BG;
+  const bgColor =
+    displayedToast.type === "error" ? ERROR_BG :
+    displayedToast.type === "info"  ? INFO_BG  :
+    SUCCESS_BG;
 
   return (
     <div

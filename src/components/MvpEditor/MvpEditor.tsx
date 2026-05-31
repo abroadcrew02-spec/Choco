@@ -1378,7 +1378,15 @@ export function MvpEditor() {
 
   const autoSave = useAutoSave(getAutoSaveState, !!baseState.imageData, {
     onSave: () => setStatus("自動保存しました"),
-    onError: () => setStatus("自動保存に失敗しました (容量不足の可能性)"),
+    onError: () => {
+      setStatus("自動保存できませんでした（容量超過）");
+      toastIdRef.current += 1;
+      setCurrentToast({
+        message: "オートセーブできませんでした（容量超過）",
+        type: "error",
+        id: toastIdRef.current,
+      });
+    },
   });
 
   // On mount: check for autosave and show restore modal if found
@@ -2630,26 +2638,26 @@ export function MvpEditor() {
         setStatus("前回の編集が見つかりませんでした");
         return;
       }
+      // Autosave is image-omitted (lite format): restore regions and settings only.
+      // imageData is null — the user must reload the original image separately.
       setBaseState({
-        imageData: state.imageData,
+        imageData: null,
         naturalWidth: state.naturalWidth,
         naturalHeight: state.naturalHeight,
       });
       editorHistory.reset();
-      editorHistory.push(state.regions, state.bakeLayer ?? null);
-      bakeLayerRef.current = state.bakeLayer;
+      editorHistory.push(state.regions, null);
+      bakeLayerRef.current = null;
       setSelectedColor(state.selectedColor);
       setTolerance(state.tolerance);
-      setPalette(extractPaletteColors(state.imageData, 8));
-      setStatus("前回の編集を復元しました");
-      showToast("前回の編集を復元しました");
-      tryFitContainer(state.naturalWidth, state.naturalHeight);
+      setStatus("リージョンと設定を復元しました。元画像を再読み込みしてください");
+      showToast("リージョンと設定を復元しました。元画像を再読み込みしてください", "info");
     } catch (err) {
       setStatus("復元に失敗しました");
       showToast("復元に失敗しました", "error");
       console.error("[handleRestoreAutoSave]", err);
     }
-  }, [autoSave, editorHistory, showToast, tryFitContainer]);
+  }, [autoSave, editorHistory, showToast]);
 
   // Issue #5: Ctrl+S / Ctrl+O global shortcuts (defined after handlers to avoid forward ref)
   useEffect(() => {
@@ -3965,6 +3973,9 @@ export function MvpEditor() {
           <div style={restoreModalBoxStyle}>
             <p style={restoreModalTextStyle}>
               前回の編集データが見つかりました。復元しますか？
+            </p>
+            <p style={{ ...restoreModalTextStyle, fontSize: 11, color: "#aaa", margin: "0 0 16px" }}>
+              ※ リージョンと設定のみ復元されます。元画像は復元後に再読み込みしてください。
             </p>
             <div style={restoreModalActionsStyle}>
               <button
