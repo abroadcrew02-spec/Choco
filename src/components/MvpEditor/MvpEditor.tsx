@@ -3928,6 +3928,8 @@ const propertyBarUpperRowStyle: React.CSSProperties = {
   gap: T.space.xs,
   padding: `5px ${T.space.sm}px`,
   flexWrap: "wrap",
+  maxHeight: 74,
+  overflow: "hidden",
   borderBottom: `1px solid ${T.color.border}`,
 };
 
@@ -3937,6 +3939,8 @@ const propertyBarLowerRowStyle: React.CSSProperties = {
   gap: T.space.xs,
   padding: `4px ${T.space.sm}px`,
   flexWrap: "wrap",
+  maxHeight: 68,
+  overflow: "hidden",
 };
 
 const mainBodyStyle: React.CSSProperties = {
