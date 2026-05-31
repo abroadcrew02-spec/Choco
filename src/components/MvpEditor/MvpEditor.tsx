@@ -650,6 +650,23 @@ export function MvpEditor() {
     [zoom]
   );
 
+  // Common post-load sequence shared by SVG and non-SVG paths in loadImageFromFile.
+  const applyLoadedImageData = useCallback(
+    (imageData: ImageData, w: number, h: number, fileName: string) => {
+      setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
+      editorHistory.reset();
+      setPalette(extractPaletteColors(imageData, 8));
+      setStatus(`画像読み込み完了: ${w}x${h}`);
+      // Issue #7: record recent file
+      const thumb = makeThumbnail(imageData);
+      addRecentFile(fileName, thumb);
+      setRecentFiles(getRecentFiles());
+      // B-1: auto-fit on load
+      tryFitContainer(w, h);
+    },
+    [editorHistory, tryFitContainer]
+  );
+
   const loadImageFromFile = useCallback(
     (file: File) => {
       const isSvg =
@@ -679,16 +696,7 @@ export function MvpEditor() {
             ctx.drawImage(img, 0, 0, w, h);
             const imageData = ctx.getImageData(0, 0, w, h);
             URL.revokeObjectURL(url);
-            setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
-            editorHistory.reset();
-            setPalette(extractPaletteColors(imageData, 8));
-            setStatus(`画像読み込み完了: ${w}x${h}`);
-            // Issue #7: record recent file
-            const thumb = makeThumbnail(imageData);
-            addRecentFile(file.name, thumb);
-            setRecentFiles(getRecentFiles());
-            // B-1: auto-fit on load
-            tryFitContainer(w, h);
+            applyLoadedImageData(imageData, w, h, file.name);
           };
           img.onerror = () => {
             setStatus("SVG画像の読み込みに失敗しました");
@@ -713,16 +721,7 @@ export function MvpEditor() {
         ctx.drawImage(img, 0, 0);
         const imageData = ctx.getImageData(0, 0, w, h);
         URL.revokeObjectURL(url);
-        setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
-        editorHistory.reset();
-        setPalette(extractPaletteColors(imageData, 8));
-        setStatus(`画像読み込み完了: ${w}x${h}`);
-        // Issue #7: record recent file
-        const thumb = makeThumbnail(imageData);
-        addRecentFile(file.name, thumb);
-        setRecentFiles(getRecentFiles());
-        // B-1: auto-fit on load
-        tryFitContainer(w, h);
+        applyLoadedImageData(imageData, w, h, file.name);
       };
       img.onerror = () => {
         setStatus("画像の読み込みに失敗しました");
@@ -730,7 +729,7 @@ export function MvpEditor() {
       };
       img.src = url;
     },
-    [editorHistory, zoom, tryFitContainer]
+    [applyLoadedImageData]
   );
 
   // C-2 fix: accept by MIME type OR file extension fallback
