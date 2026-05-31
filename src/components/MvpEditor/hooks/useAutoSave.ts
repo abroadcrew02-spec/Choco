@@ -30,6 +30,8 @@ import {
   clearProjectFromIDB,
   isIDBAvailable,
 } from "../lib/projectStorage";
+import { getProjectSerializerWorker } from "../../../worker/projectSerializerWorker";
+import type { SerializableProjectState } from "../../../worker/projectSerializer.worker";
 
 export const AUTOSAVE_KEY = "choco:autosave";
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -95,23 +97,52 @@ export function useAutoSave(
 
   /**
    * Attempts an IndexedDB save with full image data.
-   * On failure, falls back to localStorage with image omitted.
+   * Serialization is offloaded to the projectSerializer Worker to avoid
+   * blocking the main thread on large images (Issue #62).
+   * Falls back to synchronous serialization if the Worker fails, then
+   * falls back to localStorage lite format if IDB itself fails.
    */
   const performSave = useCallback(() => {
     const state = getStateRef.current();
     if (!state) return;
 
     if (isIDBAvailable()) {
-      // IDB path: serialize full project (includes image)
-      const project = serializeProject(state); // includeImage: true (default)
-      saveProjectToIDB(project)
+      // Build the serializable wire format (no ImageData objects)
+      const serializableState: SerializableProjectState = {
+        imageRgba: new Uint8Array(state.imageData.data.buffer),
+        imageWidth: state.imageData.width,
+        imageHeight: state.imageData.height,
+        naturalWidth: state.naturalWidth,
+        naturalHeight: state.naturalHeight,
+        regions: state.regions,
+        bakeLayerRgba: state.bakeLayer ? new Uint8Array(state.bakeLayer.data.buffer) : null,
+        bakeLayerWidth: state.bakeLayer ? state.bakeLayer.width : null,
+        bakeLayerHeight: state.bakeLayer ? state.bakeLayer.height : null,
+        selectedColor: state.selectedColor,
+        tolerance: state.tolerance,
+      };
+
+      // IDB path: serialize in Worker (non-blocking), then save to IDB
+      getProjectSerializerWorker()
+        .serializeProjectInWorker(serializableState)
+        .then((project) => saveProjectToIDB(project as ReturnType<typeof serializeProject>))
         .then(() => {
           onSaveRef.current?.();
         })
-        .catch((idbErr: unknown) => {
-          console.warn("[useAutoSave] IDB save failed, falling back to localStorage:", idbErr);
-          // localStorage fallback: lite format (no image) to avoid quota
-          _saveToLocalStorage(state);
+        .catch((workerOrIdbErr: unknown) => {
+          console.warn(
+            "[useAutoSave] Worker/IDB save failed, falling back to sync serialize + localStorage:",
+            workerOrIdbErr
+          );
+          // Sync fallback: serializeProject on main thread, then IDB or localStorage
+          try {
+            const project = serializeProject(state);
+            saveProjectToIDB(project)
+              .then(() => { onSaveRef.current?.(); })
+              .catch(() => { _saveToLocalStorage(state); });
+          } catch {
+            _saveToLocalStorage(state);
+          }
         });
     } else {
       // IDB unavailable: localStorage-only path
