@@ -219,6 +219,49 @@ describe("floodFillSelect", () => {
     const result = floodFillSelect(imageData, 0, 0, 0);
     expect(result).toHaveLength(16);
   });
+
+  // Issue #14: alpha-aware selection tests
+  it("transparent black (0,0,0,0) and opaque black (0,0,0,255) are not same-color", () => {
+    // 2x1: left pixel = opaque black, right pixel = transparent black (same RGB)
+    const data = new Uint8ClampedArray(2 * 1 * 4);
+    data[0] = 0; data[1] = 0; data[2] = 0; data[3] = 255; // opaque black
+    data[4] = 0; data[5] = 0; data[6] = 0; data[7] = 0;   // transparent black
+    const img = new ImageData(data, 2, 1);
+    // Starting from opaque black: should NOT include the transparent black pixel
+    const result = floodFillSelect(img, 0, 0, 0);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ x: 0, y: 0 });
+  });
+
+  it("flood fill starting on transparent pixel stays within transparent region", () => {
+    // 3x1: [transparent, transparent, opaque white]
+    const data = new Uint8ClampedArray(3 * 1 * 4);
+    data[0] = 0;   data[1] = 0;   data[2] = 0;   data[3] = 0;   // transparent
+    data[4] = 0;   data[5] = 0;   data[6] = 0;   data[7] = 0;   // transparent
+    data[8] = 255; data[9] = 255; data[10] = 255; data[11] = 255; // opaque white
+    const img = new ImageData(data, 3, 1);
+    const result = floodFillSelect(img, 0, 0, 0);
+    expect(result).toHaveLength(2);
+    for (const p of result) expect(p.x).toBeLessThan(2);
+  });
+
+  it("replaceAllSelect: transparent vs opaque same-RGB pixels are not matched", () => {
+    // 2x1: left = opaque red, right = transparent red
+    const data = new Uint8ClampedArray(2 * 1 * 4);
+    data[0] = 255; data[1] = 0; data[2] = 0; data[3] = 255; // opaque red
+    data[4] = 255; data[5] = 0; data[6] = 0; data[7] = 0;   // transparent red
+    const img = new ImageData(data, 2, 1);
+    const result = replaceAllSelect(img, 0, 0, 0);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ x: 0, y: 0 });
+  });
+
+  it("existing opaque color selection is unaffected by alpha fix", () => {
+    // All pixels opaque red — should still select all 4
+    const img = makeSolidImageData(2, 2, 255, 0, 0, 255);
+    const result = floodFillSelect(img, 0, 0, 0);
+    expect(result).toHaveLength(4);
+  });
 });
 
 // ---------------------------------------------------------------------------

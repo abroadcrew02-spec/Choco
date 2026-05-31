@@ -235,9 +235,12 @@ export function rgbToHex(r: number, g: number, b: number): string {
 }
 
 function colorDistance(
-  r1: number, g1: number, b1: number,
-  r2: number, g2: number, b2: number
+  r1: number, g1: number, b1: number, a1: number,
+  r2: number, g2: number, b2: number, a2: number
 ): number {
+  // Transparent pixels are treated as a distinct color class:
+  // alpha=0 vs alpha>0 never match regardless of RGB values.
+  if ((a1 === 0) !== (a2 === 0)) return Infinity;
   return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
 }
 
@@ -264,6 +267,7 @@ export function floodFillSelect(
   const startR = data[startIdx];
   const startG = data[startIdx + 1];
   const startB = data[startIdx + 2];
+  const startA = data[startIdx + 3];
 
   const visited = new Uint8Array(width * height);
   const result: { x: number; y: number }[] = [];
@@ -294,7 +298,7 @@ export function floodFillSelect(
     const b = data[pixelIdx + 2];
     const a = data[pixelIdx + 3];
 
-    const dist = colorDistance(r, g, b, startR, startG, startB);
+    const dist = colorDistance(r, g, b, a, startR, startG, startB, startA);
 
     // Normal check: strict color distance
     const matchesNormal = dist <= tolerance;
@@ -335,6 +339,7 @@ export function replaceAllSelect(
   const startR = data[startIdx];
   const startG = data[startIdx + 1];
   const startB = data[startIdx + 2];
+  const startA = data[startIdx + 3];
 
   const result: { x: number; y: number }[] = [];
   for (let y = 0; y < height; y++) {
@@ -343,7 +348,8 @@ export function replaceAllSelect(
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
-      if (colorDistance(r, g, b, startR, startG, startB) <= tolerance) {
+      const a = data[idx + 3];
+      if (colorDistance(r, g, b, a, startR, startG, startB, startA) <= tolerance) {
         result.push({ x, y });
       }
     }
@@ -484,6 +490,7 @@ export function smoothReplaceAll(
   const r0 = data[startIdx];
   const g0 = data[startIdx + 1];
   const b0 = data[startIdx + 2];
+  const a0 = data[startIdx + 3];
   const [fr, fg, fb] = newColor;
 
   const resultData = new Uint8ClampedArray(data);
@@ -492,6 +499,8 @@ export function smoothReplaceAll(
 
   for (let i = 0; i < width * height; i++) {
     const k = i * 4;
+    // Skip pixels in a different alpha class (transparent vs opaque)
+    if ((resultData[k + 3] === 0) !== (a0 === 0)) continue;
     const dr = resultData[k] - r0;
     const dg = resultData[k + 1] - g0;
     const db = resultData[k + 2] - b0;
@@ -894,7 +903,8 @@ export function makeWhiteTransparent(
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
-      if (colorDistance(r, g, b, 255, 255, 255) <= tolerance) {
+      const a = data[idx + 3];
+      if (colorDistance(r, g, b, a, 255, 255, 255, 255) <= tolerance) {
         result.push({ x, y });
       }
     }
