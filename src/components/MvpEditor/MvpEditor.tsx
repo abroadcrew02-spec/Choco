@@ -48,6 +48,13 @@ import { HsvPicker } from "./components/HsvPicker";
 import { Tooltip } from "./components/Tooltip";
 import { Toast, type ToastMessage } from "./components/Toast";
 import { ShortcutHelp } from "./components/ShortcutHelp";
+import {
+  ExportModal,
+  getMimeType,
+  getFileExtension,
+  calcOutputSize,
+  type ExportOptions,
+} from "./components/ExportModal";
 
 // ---------------------------------------------------------------------------
 // Design tokens — Professional Dark Studio
@@ -491,7 +498,57 @@ export function smoothReplaceAll(
 
 
 /**
+ * Renders ImageData to an offscreen canvas at the given output dimensions,
+ * then triggers a Blob export via URL.createObjectURL.
+ *
+ * @param imageData  - Source image
+ * @param outWidth   - Output canvas width in pixels
+ * @param outHeight  - Output canvas height in pixels
+ * @param mimeType   - MIME type for toBlob (e.g. "image/png")
+ * @param quality    - Encoder quality 0–1 (used for jpeg/webp; ignored for png)
+ * @param filename   - Download filename
+ */
+export function exportImageData(
+  imageData: ImageData,
+  outWidth: number,
+  outHeight: number,
+  mimeType: string,
+  quality: number,
+  filename: string
+): void {
+  const canvas = document.createElement("canvas");
+  canvas.width = outWidth;
+  canvas.height = outHeight;
+  const ctx = canvas.getContext("2d")!;
+  if (outWidth !== imageData.width || outHeight !== imageData.height) {
+    ctx.imageSmoothingEnabled = false;
+    const tmp = document.createElement("canvas");
+    tmp.width = imageData.width;
+    tmp.height = imageData.height;
+    const tmpCtx = tmp.getContext("2d")!;
+    tmpCtx.putImageData(imageData, 0, 0);
+    ctx.drawImage(tmp, 0, 0, outWidth, outHeight);
+  } else {
+    ctx.putImageData(imageData, 0, 0);
+  }
+  canvas.toBlob(
+    (blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    mimeType,
+    quality / 100
+  );
+}
+
+/**
  * Converts ImageData to a PNG data URL via an offscreen canvas.
+ * Kept for internal/legacy use; prefer exportImageData for actual downloads.
  */
 function imageDataToPngDataUrl(imageData: ImageData, scale = 1): string {
   const canvas = document.createElement("canvas");
@@ -1220,7 +1277,7 @@ export function MvpEditor() {
   const [spacePressed, setSpacePressed] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<string | null>(null);
   const [palette, setPalette] = useState<string[]>([]);
-  const [pngScale, setPngScale] = useState<1 | 2 | 4>(1);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [showMapping, setShowMapping] = useState(true);
   const [showPalette, setShowPalette] = useState(true);
   // B-2: brand color swatches
@@ -2479,17 +2536,22 @@ export function MvpEditor() {
     }
   }, [baseState, regions, showToast]);
 
-  const handleExportPng = useCallback(() => {
+  const handleExport = useCallback((options: ExportOptions) => {
     if (!baseState.imageData) return;
     const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
-    const url = imageDataToPngDataUrl(composited, pngScale);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `export_${pngScale}x.png`;
-    a.click();
-    setStatus(`PNGをエクスポートしました (${pngScale}x)`);
-    showToast(`PNGをエクスポートしました (${pngScale}x)`);
-  }, [baseState, regions, pngScale, showToast]);
+    const { width, height } = calcOutputSize(
+      baseState.naturalWidth,
+      baseState.naturalHeight,
+      options
+    );
+    const mimeType = getMimeType(options.format);
+    const ext = getFileExtension(options.format);
+    const filename = `export_${width}x${height}.${ext}`;
+    exportImageData(composited, width, height, mimeType, options.quality, filename);
+    const label = options.format.toUpperCase();
+    setStatus(`${label}をエクスポートしました (${width}×${height})`);
+    showToast(`${label}をエクスポートしました (${width}×${height})`);
+  }, [baseState, regions, showToast]);
 
   // ---------------------------------------------------------------------------
   // Fit to container
@@ -2778,28 +2840,18 @@ export function MvpEditor() {
           </button>
         </Tooltip>
 
-        {/* Export PNG with scale selector */}
-        <Tooltip label="PNG出力">
+        {/* Export image modal trigger */}
+        <Tooltip label="画像出力 (PNG/JPEG/WebP)">
           <button
             type="button"
-            onClick={handleExportPng}
+            onClick={() => setExportModalOpen(true)}
             disabled={!baseState.imageData}
             style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
-            aria-label="PNG出力"
+            aria-label="画像出力"
           >
             <Download size={16} />
           </button>
         </Tooltip>
-        <select
-          value={pngScale}
-          onChange={(e) => setPngScale(Number(e.target.value) as 1 | 2 | 4)}
-          style={selectStyle}
-          title="PNG出力倍率"
-        >
-          <option value={1}>1x</option>
-          <option value={2}>2x</option>
-          <option value={4}>4x</option>
-        </select>
 
         <div style={dividerStyle} />
 
@@ -3949,6 +4001,16 @@ export function MvpEditor() {
           x={shortcutPos.x}
           y={shortcutPos.y}
           onClose={() => setShortcutPos(null)}
+        />
+      )}
+
+      {/* Issue #6: Export modal */}
+      {exportModalOpen && baseState.imageData && (
+        <ExportModal
+          naturalWidth={baseState.naturalWidth}
+          naturalHeight={baseState.naturalHeight}
+          onExport={handleExport}
+          onClose={() => setExportModalOpen(false)}
         />
       )}
     </div>

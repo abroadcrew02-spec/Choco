@@ -28,6 +28,14 @@ import {
   marchingSquaresPath,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
+import {
+  getMimeType,
+  getFileExtension,
+  calcOutputSize,
+  estimateFileSizeBytes,
+  formatFileSizeLabel,
+  type ExportFormat,
+} from "../../src/components/MvpEditor/components/ExportModal";
 import { hsv2rgb, rgb2hsv } from "../../src/components/MvpEditor/components/HsvPicker";
 import {
   buildCssLinearGradient,
@@ -1069,6 +1077,128 @@ describe("isInputFocused", () => {
   it("returns false for BUTTON element", () => {
     const el = { tagName: "BUTTON", isContentEditable: false } as unknown as HTMLElement;
     expect(isInputFocused(el)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #6: ExportModal pure helpers
+// ---------------------------------------------------------------------------
+
+describe("getMimeType", () => {
+  it("returns image/png for png", () => {
+    expect(getMimeType("png")).toBe("image/png");
+  });
+  it("returns image/jpeg for jpeg", () => {
+    expect(getMimeType("jpeg")).toBe("image/jpeg");
+  });
+  it("returns image/webp for webp", () => {
+    expect(getMimeType("webp")).toBe("image/webp");
+  });
+});
+
+describe("getFileExtension", () => {
+  it("returns png for png", () => {
+    expect(getFileExtension("png")).toBe("png");
+  });
+  it("returns jpg for jpeg", () => {
+    expect(getFileExtension("jpeg")).toBe("jpg");
+  });
+  it("returns webp for webp", () => {
+    expect(getFileExtension("webp")).toBe("webp");
+  });
+});
+
+describe("calcOutputSize", () => {
+  const nat = { naturalWidth: 200, naturalHeight: 100 };
+
+  it("returns original size for scale=original", () => {
+    const out = calcOutputSize(nat.naturalWidth, nat.naturalHeight, {
+      scale: "original",
+      customWidth: 0,
+      customHeight: 0,
+    });
+    expect(out).toEqual({ width: 200, height: 100 });
+  });
+
+  it("returns original size for scale=1x", () => {
+    const out = calcOutputSize(nat.naturalWidth, nat.naturalHeight, {
+      scale: "1x",
+      customWidth: 0,
+      customHeight: 0,
+    });
+    expect(out).toEqual({ width: 200, height: 100 });
+  });
+
+  it("doubles dimensions for scale=2x", () => {
+    const out = calcOutputSize(nat.naturalWidth, nat.naturalHeight, {
+      scale: "2x",
+      customWidth: 0,
+      customHeight: 0,
+    });
+    expect(out).toEqual({ width: 400, height: 200 });
+  });
+
+  it("quadruples dimensions for scale=4x", () => {
+    const out = calcOutputSize(nat.naturalWidth, nat.naturalHeight, {
+      scale: "4x",
+      customWidth: 0,
+      customHeight: 0,
+    });
+    expect(out).toEqual({ width: 800, height: 400 });
+  });
+
+  it("uses custom dimensions for scale=custom", () => {
+    const out = calcOutputSize(nat.naturalWidth, nat.naturalHeight, {
+      scale: "custom",
+      customWidth: 1920,
+      customHeight: 1080,
+    });
+    expect(out).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("clamps custom dimensions to minimum 1", () => {
+    const out = calcOutputSize(nat.naturalWidth, nat.naturalHeight, {
+      scale: "custom",
+      customWidth: 0,
+      customHeight: -5,
+    });
+    expect(out.width).toBe(1);
+    expect(out.height).toBe(1);
+  });
+});
+
+describe("estimateFileSizeBytes", () => {
+  it("estimates png size proportional to pixel count", () => {
+    const bytes = estimateFileSizeBytes(100, 100, "png", 90);
+    expect(bytes).toBe(Math.round(100 * 100 * 0.5));
+  });
+
+  it("returns larger estimate for higher jpeg quality", () => {
+    const low = estimateFileSizeBytes(100, 100, "jpeg", 10);
+    const high = estimateFileSizeBytes(100, 100, "jpeg", 90);
+    expect(high).toBeGreaterThan(low);
+  });
+
+  it("png estimate is independent of quality parameter", () => {
+    const a = estimateFileSizeBytes(200, 200, "png", 50);
+    const b = estimateFileSizeBytes(200, 200, "png", 100);
+    expect(a).toBe(b);
+  });
+});
+
+describe("formatFileSizeLabel", () => {
+  it("formats bytes below 1 KB", () => {
+    expect(formatFileSizeLabel(500)).toBe("~500 B");
+  });
+
+  it("formats KB range", () => {
+    const label = formatFileSizeLabel(2048);
+    expect(label).toBe("~2 KB");
+  });
+
+  it("formats MB range", () => {
+    const label = formatFileSizeLabel(1.5 * 1024 * 1024);
+    expect(label).toContain("MB");
   });
 });
 
