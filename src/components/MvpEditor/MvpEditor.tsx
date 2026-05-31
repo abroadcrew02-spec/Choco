@@ -1146,6 +1146,26 @@ export function MvpEditor() {
   // Image loading
   // ---------------------------------------------------------------------------
 
+  // Fit canvas to container with clientWidth > 0 guard and one rAF retry.
+  const tryFitContainer = useCallback(
+    (w: number, h: number) => {
+      const attempt = () => {
+        const c = containerRef.current;
+        if (c && c.clientWidth > 0 && c.clientHeight > 0) {
+          zoom.fitToContainer(c.clientWidth, c.clientHeight, w, h);
+          return true;
+        }
+        return false;
+      };
+      requestAnimationFrame(() => {
+        if (!attempt()) {
+          requestAnimationFrame(() => { attempt(); });
+        }
+      });
+    },
+    [zoom]
+  );
+
   const loadImageFromFile = useCallback(
     (file: File) => {
       const isSvg =
@@ -1181,10 +1201,7 @@ export function MvpEditor() {
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`画像読み込み完了: ${w}x${h}`);
             // B-1: auto-fit on load
-            requestAnimationFrame(() => {
-              const container = containerRef.current;
-              if (container) zoom.fitToContainer(container.clientWidth, container.clientHeight, w, h);
-            });
+            tryFitContainer(w, h);
           };
           img.onerror = () => {
             setStatus("SVG画像の読み込みに失敗しました");
@@ -1215,10 +1232,7 @@ export function MvpEditor() {
         setPalette(extractPaletteColors(imageData, 8));
         setStatus(`画像読み込み完了: ${w}x${h}`);
         // B-1: auto-fit on load
-        requestAnimationFrame(() => {
-          const container = containerRef.current;
-          if (container) zoom.fitToContainer(container.clientWidth, container.clientHeight, w, h);
-        });
+        tryFitContainer(w, h);
       };
       img.onerror = () => {
         setStatus("画像の読み込みに失敗しました");
@@ -1226,7 +1240,7 @@ export function MvpEditor() {
       };
       img.src = url;
     },
-    [regionHistory, zoom, resetBakeHistory]
+    [regionHistory, zoom, resetBakeHistory, tryFitContainer]
   );
 
   // C-2 fix: accept by MIME type OR file extension fallback
@@ -1612,10 +1626,7 @@ export function MvpEditor() {
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`クリップボードから読み込み: ${w}x${h}`);
             // auto-fit on paste
-            requestAnimationFrame(() => {
-              const container = containerRef.current;
-              if (container) zoom.fitToContainer(container.clientWidth, container.clientHeight, w, h);
-            });
+            tryFitContainer(w, h);
           };
           img.onerror = () => {
             setStatus("クリップボード画像の読み込みに失敗しました");
@@ -1627,7 +1638,7 @@ export function MvpEditor() {
       }
       setStatus("クリップボードに画像がありません");
     }).catch(() => setStatus("クリップボードへのアクセスが拒否されました"));
-  }, [regionHistory, zoom, resetBakeHistory]);
+  }, [regionHistory, zoom, resetBakeHistory, tryFitContainer]);
 
   // ---------------------------------------------------------------------------
   // B-1: Transparent white
@@ -2234,7 +2245,7 @@ export function MvpEditor() {
             <div
               style={{
                 transform: `translate(${zoom.offsetX}px, ${zoom.offsetY}px) scale(${zoom.scale})`,
-                transformOrigin: "0 0",
+                transformOrigin: "top left",
                 position: "absolute",
                 top: 0,
                 left: 0,
@@ -2592,7 +2603,7 @@ const dropZoneStyle: React.CSSProperties = {
   padding: `${T.space.xl * 2}px ${T.space.xl * 3}px`,
   textAlign: "center",
   color: T.color.textMuted,
-  pointerEvents: "none",
+  pointerEvents: "auto",
   background: "rgba(255,255,255,0.02)",
 };
 
