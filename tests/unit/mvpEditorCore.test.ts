@@ -13,6 +13,7 @@ import {
   compositeRegions,
   floodFillSelect,
   isAcceptedImageFile,
+  isInputFocused,
   hexToRgb,
   rgbToHex,
   replaceAllSelect,
@@ -962,6 +963,41 @@ describe("applyRadialGradient", () => {
     expect(ctx.createRadialGradient).toHaveBeenCalledOnce();
     expect(mockGrad.addColorStop).toHaveBeenCalledTimes(3);
     expect(ctx.fillStyle).toBe(mockGrad);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isInputFocused (Issue #1: suppress tool shortcuts when input is focused)
+// ---------------------------------------------------------------------------
+
+describe("isInputFocused", () => {
+  it("returns true for an INPUT element", () => {
+    const el = { tagName: "INPUT", isContentEditable: false } as unknown as HTMLElement;
+    expect(isInputFocused(el)).toBe(true);
+  });
+
+  it("returns true for a TEXTAREA element", () => {
+    const el = { tagName: "TEXTAREA", isContentEditable: false } as unknown as HTMLElement;
+    expect(isInputFocused(el)).toBe(true);
+  });
+
+  it("returns true for a contenteditable element", () => {
+    const el = { tagName: "DIV", isContentEditable: true } as unknown as HTMLElement;
+    expect(isInputFocused(el)).toBe(true);
+  });
+
+  it("returns false for a CANVAS element", () => {
+    const el = { tagName: "CANVAS", isContentEditable: false } as unknown as HTMLElement;
+    expect(isInputFocused(el)).toBe(false);
+  });
+
+  it("returns false for null target", () => {
+    expect(isInputFocused(null)).toBe(false);
+  });
+
+  it("returns false for BUTTON element", () => {
+    const el = { tagName: "BUTTON", isContentEditable: false } as unknown as HTMLElement;
+    expect(isInputFocused(el)).toBe(false);
   });
 });
 

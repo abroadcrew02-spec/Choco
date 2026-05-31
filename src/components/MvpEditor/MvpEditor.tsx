@@ -1123,6 +1123,18 @@ export function isAcceptedImageFile(file: { type: string; name: string }): boole
   return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+/**
+ * Returns true when a keyboard event's target is an editable element
+ * (input, textarea, or contenteditable). Used to suppress bare tool
+ * shortcuts while the user is typing.
+ */
+export function isInputFocused(target: EventTarget | null): boolean {
+  if (target == null) return false;
+  const el = target as { tagName?: string; isContentEditable?: boolean };
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable === true;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -1335,6 +1347,10 @@ export function MvpEditor() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore bare tool shortcuts when an input element has focus.
+      // Modifier-based shortcuts (Ctrl/Meta) are always processed.
+      if (!e.ctrlKey && !e.metaKey && isInputFocused(e.target)) return;
+
       if (e.code === "Space") {
         e.preventDefault();
         setSpacePressed(true);
