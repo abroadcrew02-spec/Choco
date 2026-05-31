@@ -1412,46 +1412,59 @@ export function MvpEditor() {
   // B-1: Clipboard paste (Ctrl+V)
   // ---------------------------------------------------------------------------
 
-  const handleClipboardPaste = useCallback(() => {
+  const handleClipboardPaste = useCallback(async () => {
     if (!navigator.clipboard?.read) {
       setStatus("クリップボードAPIが利用できません");
       return;
     }
-    navigator.clipboard.read().then((items) => {
-      for (const item of items) {
-        const imageType = item.types.find((t) => t.startsWith("image/"));
-        if (!imageType) continue;
-        item.getType(imageType).then((blob) => {
-          const url = URL.createObjectURL(blob);
-          const img = new Image();
-          img.onload = () => {
-            const w = img.naturalWidth;
-            const h = img.naturalHeight;
-            const offscreen = document.createElement("canvas");
-            offscreen.width = w;
-            offscreen.height = h;
-            const ctx = offscreen.getContext("2d")!;
-            ctx.drawImage(img, 0, 0);
-            const imageData = ctx.getImageData(0, 0, w, h);
-            URL.revokeObjectURL(url);
-            setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
-            editorHistory.reset();
-            setPalette(extractPaletteColors(imageData, 8));
-            setStatus(`クリップボードから読み込み: ${w}x${h}`);
-            // auto-fit on paste
-            tryFitContainer(w, h);
-          };
-          img.onerror = () => {
-            setStatus("クリップボード画像の読み込みに失敗しました");
-            URL.revokeObjectURL(url);
-          };
-          img.src = url;
-        }).catch(() => setStatus("クリップボード読み込みエラー"));
+    let items: ClipboardItems;
+    try {
+      items = await navigator.clipboard.read();
+    } catch {
+      setStatus("クリップボードへのアクセスが拒否されました");
+      return;
+    }
+    for (const item of items) {
+      const imageType = item.types.find((t) => t.startsWith("image/"));
+      if (!imageType) continue;
+      let blob: Blob;
+      try {
+        blob = await item.getType(imageType);
+      } catch {
+        setStatus("クリップボード読み込みエラー");
         return;
       }
-      setStatus("クリップボードに画像がありません");
-    }).catch(() => setStatus("クリップボードへのアクセスが拒否されました"));
-  }, [editorHistory, zoom, tryFitContainer]);
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => {
+          setStatus("クリップボード画像の読み込みに失敗しました");
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        img.src = url;
+      });
+      if (!img.naturalWidth) return;
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const offscreen = document.createElement("canvas");
+      offscreen.width = w;
+      offscreen.height = h;
+      const ctx = offscreen.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      URL.revokeObjectURL(url);
+      setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
+      editorHistory.reset();
+      setPalette(extractPaletteColors(imageData, 8));
+      setStatus(`クリップボードから読み込み: ${w}x${h}`);
+      // auto-fit on paste
+      tryFitContainer(w, h);
+      return;
+    }
+    setStatus("クリップボードに画像がありません");
+  }, [editorHistory, tryFitContainer]);
 
   // ---------------------------------------------------------------------------
   // Issue #8: Copy composited canvas to clipboard as PNG
