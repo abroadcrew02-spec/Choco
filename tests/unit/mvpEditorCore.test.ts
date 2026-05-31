@@ -47,6 +47,14 @@ import {
   applyRadialGradient,
   type GradientStop,
 } from "../../src/components/MvpEditor/components/GradientEditor";
+import {
+  hexToHsl,
+  hslToHex,
+  complementary,
+  triadic,
+  analogous,
+  splitComplementary,
+} from "../../src/components/MvpEditor/lib/colorHarmony";
 
 // jsdom does not implement ImageData. Provide a minimal polyfill.
 beforeAll(() => {
@@ -2032,5 +2040,98 @@ describe("Issue #24: reference layer isolation", () => {
     expect(result.data[1]).toBe(90);
     expect(result.data[2]).toBe(100);
     expect(result.data[3]).toBe(255);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #26: colorHarmony — complementary, triadic, analogous, splitComplementary
+// ---------------------------------------------------------------------------
+
+describe("hexToHsl / hslToHex round-trip", () => {
+  it("round-trips pure red without loss", () => {
+    const { h, s, l } = hexToHsl("#ff0000");
+    expect(h).toBeCloseTo(0, 0);
+    expect(s).toBeCloseTo(1, 2);
+    expect(l).toBeCloseTo(0.5, 2);
+    expect(hslToHex(h, s, l)).toBe("#ff0000");
+  });
+
+  it("round-trips a mid-tone blue (#3366cc)", () => {
+    const hex = "#3366cc";
+    const { h, s, l } = hexToHsl(hex);
+    expect(hslToHex(h, s, l)).toBe(hex);
+  });
+
+  it("hue wraps correctly beyond 360", () => {
+    const result = hslToHex(370, 1, 0.5);
+    expect(result).toBe(hslToHex(10, 1, 0.5));
+  });
+});
+
+describe("complementary", () => {
+  it("red (#ff0000) complements to cyan (#00ffff)", () => {
+    expect(complementary("#ff0000")).toBe("#00ffff");
+  });
+
+  it("complement of complement is the original color", () => {
+    const original = "#3366cc";
+    expect(complementary(complementary(original))).toBe(original);
+  });
+});
+
+describe("triadic", () => {
+  it("returns two colors at +120 and +240 degrees from source", () => {
+    const [a, b] = triadic("#ff0000");
+    // red (H=0) → H=120 (green-like), H=240 (blue-like)
+    const { h: ha } = hexToHsl(a);
+    const { h: hb } = hexToHsl(b);
+    expect(ha).toBeCloseTo(120, 0);
+    expect(hb).toBeCloseTo(240, 0);
+  });
+
+  it("all three triadic colors have the same saturation and lightness", () => {
+    const source = "#3399ff";
+    const { s: ss, l: sl } = hexToHsl(source);
+    for (const c of triadic(source)) {
+      const { s, l } = hexToHsl(c);
+      expect(s).toBeCloseTo(ss, 2);
+      expect(l).toBeCloseTo(sl, 2);
+    }
+  });
+});
+
+describe("analogous", () => {
+  it("returns colors at -30 and +30 degrees from source", () => {
+    const source = "#ff0000"; // H=0
+    const [neg30, pos30] = analogous(source);
+    const { h: hNeg } = hexToHsl(neg30);
+    const { h: hPos } = hexToHsl(pos30);
+    expect(hNeg).toBeCloseTo(330, 0);
+    expect(hPos).toBeCloseTo(30, 0);
+  });
+});
+
+describe("splitComplementary", () => {
+  it("returns colors at +150 and +210 degrees from source", () => {
+    const source = "#ff0000"; // H=0
+    const [a, b] = splitComplementary(source);
+    const { h: ha } = hexToHsl(a);
+    const { h: hb } = hexToHsl(b);
+    expect(ha).toBeCloseTo(150, 0);
+    expect(hb).toBeCloseTo(210, 0);
+  });
+
+  it("split-complementary colors are symmetric around the complement", () => {
+    const source = "#ff6600";
+    const { h } = hexToHsl(source);
+    const [a, b] = splitComplementary(source);
+    const { h: ha } = hexToHsl(a);
+    const { h: hb } = hexToHsl(b);
+    // +150 and +210 are each 30deg away from the complement (+180)
+    const complement = (h + 180) % 360;
+    const diffA = Math.abs(((ha - complement + 540) % 360) - 180);
+    const diffB = Math.abs(((hb - complement + 540) % 360) - 180);
+    expect(diffA).toBeCloseTo(30, 0);
+    expect(diffB).toBeCloseTo(30, 0);
   });
 });

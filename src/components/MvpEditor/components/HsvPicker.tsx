@@ -1,4 +1,10 @@
 import { useRef, useEffect, useCallback, useState } from "react";
+import {
+  complementary,
+  triadic,
+  analogous,
+  splitComplementary,
+} from "../lib/colorHarmony";
 
 // ---------------------------------------------------------------------------
 // HSV color conversions (ported from logo_recolor_4.html)
@@ -292,6 +298,14 @@ export function HsvPicker({ hex, onChange, onClose }: HsvPickerProps): JSX.Eleme
     setHexInput(hex.toUpperCase());
   }, [hex]);
 
+  // Harmony swatches derived from current hex
+  const harmonyGroups: Array<{ label: string; colors: string[] }> = [
+    { label: "補色", colors: [complementary(hex)] },
+    { label: "三角", colors: triadic(hex) },
+    { label: "類似", colors: analogous(hex) },
+    { label: "分裂補色", colors: splitComplementary(hex) },
+  ];
+
   const handleHexInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.trim();
     setHexInput(val.toUpperCase());
@@ -359,6 +373,66 @@ export function HsvPicker({ hex, onChange, onClose }: HsvPickerProps): JSX.Eleme
           }}
           spellCheck={false}
         />
+      </div>
+
+      {/* Color harmony section */}
+      <div
+        style={{
+          marginTop: 10,
+          borderTop: "1px solid rgba(255,255,255,0.1)",
+          paddingTop: 8,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 10,
+            color: "rgba(255,255,255,0.45)",
+            marginBottom: 6,
+            letterSpacing: "0.04em",
+          }}
+        >
+          ハーモニー
+        </div>
+        {harmonyGroups.map(({ label, colors }) => (
+          <div
+            key={label}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              marginBottom: 4,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10,
+                color: "rgba(255,255,255,0.5)",
+                width: 48,
+                flexShrink: 0,
+              }}
+            >
+              {label}
+            </span>
+            {colors.map((c) => (
+              <button
+                key={c}
+                type="button"
+                title={c.toUpperCase()}
+                onClick={() => onChange(c)}
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 3,
+                  background: c,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  padding: 0,
+                }}
+              />
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );
