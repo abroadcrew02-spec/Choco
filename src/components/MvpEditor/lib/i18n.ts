@@ -223,6 +223,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "template.create": "作成",
     "template.orOpenImage": "または画像を開く / ドロップ",
     "status.templateCreated": "空キャンバスを作成しました",
+
+    // Keyboard shortcuts (Issue #53)
+    "settings.shortcuts": "キーボードショートカット",
+    "settings.shortcutsNote": "ボタンをクリックして新しいキーを押して割り当て",
+    "settings.shortcutsReset": "デフォルトに戻す",
   },
 
   en: {
@@ -436,6 +441,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "template.create": "Create",
     "template.orOpenImage": "or open / drop an image",
     "status.templateCreated": "Blank canvas created",
+
+    // Keyboard shortcuts (Issue #53)
+    "settings.shortcuts": "Keyboard Shortcuts",
+    "settings.shortcutsNote": "Click a button, then press a new key to remap",
+    "settings.shortcutsReset": "Reset to defaults",
   },
 };
 

@@ -1,7 +1,14 @@
-import { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { t, type Lang } from "../lib/i18n";
 import type { ThemeMode } from "../hooks/useTheme";
 import type { ScalePreset } from "./ExportModal";
+import {
+  SHORTCUT_DEFS,
+  getAllShortcuts,
+  setShortcut,
+  resetShortcuts,
+  type ShortcutActionId,
+} from "../lib/shortcuts";
 
 // ---------------------------------------------------------------------------
 // SettingsModal — Preferences panel (Issue #52)
@@ -136,6 +143,54 @@ const BTN_RESHOW: React.CSSProperties = {
   color: "#c8c8c8",
 };
 
+// Shortcut editor styles (Issue #53)
+const SC_GRID: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  gap: "4px 8px",
+  alignItems: "center",
+};
+
+const SC_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 12,
+  color: "#c8c8c8",
+};
+
+const SC_BTN_BASE: React.CSSProperties = {
+  padding: "2px 10px",
+  borderRadius: 4,
+  fontSize: 12,
+  fontFamily: "monospace",
+  cursor: "pointer",
+  color: "#e8e8e8",
+  minWidth: 36,
+  textAlign: "center",
+};
+
+const SC_BTN_IDLE: React.CSSProperties = {
+  ...SC_BTN_BASE,
+  background: "#2a2a2a",
+  border: "1px solid rgba(255,255,255,0.14)",
+};
+
+const SC_BTN_ACTIVE: React.CSSProperties = {
+  ...SC_BTN_BASE,
+  background: "#4f8ef7",
+  border: "1px solid #4f8ef7",
+};
+
+const SC_RESET_BTN: React.CSSProperties = {
+  marginTop: 6,
+  padding: "3px 10px",
+  borderRadius: 4,
+  fontSize: 11,
+  cursor: "pointer",
+  background: "#2a2a2a",
+  border: "1px solid rgba(255,255,255,0.14)",
+  color: "#aaa",
+  fontFamily: "'Inter','Noto Sans JP',system-ui,sans-serif",
+};
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -166,6 +221,44 @@ export function SettingsModal({
   onClose,
 }: SettingsModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Shortcut customization state (Issue #53)
+  const [shortcuts, setShortcutsState] = useState<Record<ShortcutActionId, string>>(() =>
+    getAllShortcuts()
+  );
+  const [capturingId, setCapturingId] = useState<ShortcutActionId | null>(null);
+
+  const handleShortcutKeyCapture = useCallback(
+    (e: KeyboardEvent) => {
+      if (capturingId === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const key = e.key;
+      // Accept single printable character only; Escape cancels
+      if (key === "Escape") {
+        setCapturingId(null);
+        return;
+      }
+      if (key.length === 1) {
+        setShortcut(capturingId, key);
+        setShortcutsState(getAllShortcuts());
+        setCapturingId(null);
+      }
+    },
+    [capturingId]
+  );
+
+  useEffect(() => {
+    if (capturingId === null) return;
+    document.addEventListener("keydown", handleShortcutKeyCapture, true);
+    return () => document.removeEventListener("keydown", handleShortcutKeyCapture, true);
+  }, [capturingId, handleShortcutKeyCapture]);
+
+  const handleResetShortcuts = useCallback(() => {
+    resetShortcuts();
+    setShortcutsState(getAllShortcuts());
+    setCapturingId(null);
+  }, []);
 
   // Close on Escape
   useEffect(() => {
@@ -274,6 +367,40 @@ export function SettingsModal({
         {/* Undo history limit (info only) */}
         <span style={SECTION_LABEL}>{t("settings.undoLimit", lang)}</span>
         <p style={NOTE}>{t("settings.undoLimitNote", lang)}</p>
+
+        {/* Keyboard shortcuts (Issue #53) */}
+        <span style={SECTION_LABEL}>{t("settings.shortcuts", lang)}</span>
+        <div style={SC_GRID}>
+          {SHORTCUT_DEFS.map((def) => {
+            const isCapturing = capturingId === def.id;
+            const currentKey = shortcuts[def.id].toUpperCase();
+            const btnLabel = lang === "ja" ? def.labelJa : def.label;
+            return (
+              <React.Fragment key={def.id}>
+                <span style={SC_LABEL_STYLE}>
+                  {btnLabel}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCapturingId(isCapturing ? null : def.id)}
+                  style={isCapturing ? SC_BTN_ACTIVE : SC_BTN_IDLE}
+                  aria-label={`${btnLabel} shortcut`}
+                  aria-pressed={Boolean(isCapturing)}
+                >
+                  {isCapturing ? "..." : currentKey}
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </div>
+        <p style={NOTE}>{t("settings.shortcutsNote", lang)}</p>
+        <button
+          type="button"
+          onClick={handleResetShortcuts}
+          style={SC_RESET_BTN}
+        >
+          {t("settings.shortcutsReset", lang)}
+        </button>
 
         <div style={DIVIDER} />
 

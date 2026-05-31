@@ -3,6 +3,7 @@ import type { UseEditorHistoryReturn } from "./useEditorHistory";
 import type { UseZoomPanReturn } from "./useZoomPan";
 import { isInputFocused } from "../lib/imageProcessing";
 import { t, type Lang } from "../lib/i18n";
+import { getAllShortcuts } from "../lib/shortcuts";
 
 export type EditorMode =
   | "color"
@@ -118,31 +119,20 @@ export function useKeyboardShortcuts(params: UseKeyboardShortcutsParams): void {
         handleClipboardPaste();
         return;
       }
-      // B = brush
-      if (!e.ctrlKey && !e.altKey && e.key === "b") {
-        setMode("brush");
-        return;
+
+      // Tool shortcuts — resolved from customizable mappings (Issue #53)
+      if (!e.ctrlKey && !e.altKey) {
+        const shortcuts = getAllShortcuts();
+        const k = e.key.toLowerCase();
+        if (k === shortcuts.brush)       { setMode("brush");       return; }
+        if (k === shortcuts.eyedropper)  { setMode("eyedropper");  return; }
+        if (k === shortcuts.replaceAll)  { setMode("replace-all"); return; }
+        if (k === shortcuts.text)        { setMode("text");        return; }
+        if (k === shortcuts.shape)       { setMode("shape");       return; }
+        if (k === shortcuts.color)       { setMode("color");       return; }
+        if (k === shortcuts.transparent) { setMode("transparent"); return; }
       }
-      // I = eyedropper
-      if (!e.ctrlKey && !e.altKey && e.key === "i") {
-        setMode("eyedropper");
-        return;
-      }
-      // R = replace-all
-      if (!e.ctrlKey && !e.altKey && e.key === "r") {
-        setMode("replace-all");
-        return;
-      }
-      // T = text tool
-      if (!e.ctrlKey && !e.altKey && e.key === "t") {
-        setMode("text");
-        return;
-      }
-      // U = shape tool
-      if (!e.ctrlKey && !e.altKey && e.key === "u") {
-        setMode("shape");
-        return;
-      }
+
       // Escape: cancel text draft
       if (e.key === "Escape") {
         setTextDraft(null);
