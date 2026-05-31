@@ -2987,6 +2987,7 @@ export function MvpEditor() {
               >
                 {t("drop.selectFile", lang)}
               </button>
+              <p style={dropZonePasteHintStyle}>{t("drop.paste", lang)}</p>
             </div>
           ) : (
             <div
@@ -3634,6 +3635,13 @@ const dropZoneButtonStyle: React.CSSProperties = {
   fontSize: T.font.label,
   padding: "5px 16px",
   borderRadius: T.radius.md,
+};
+
+const dropZonePasteHintStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: T.font.label,
+  color: T.color.textDim,
+  fontFamily: T.font.family,
 };
 
 // Mapping sidebar rows (used in right panel)

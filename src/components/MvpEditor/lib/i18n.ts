@@ -151,6 +151,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "drop.formats": "PNG / JPG / SVG / WebP",
     "drop.or": "または",
     "drop.selectFile": "ファイルを選択",
+    "drop.paste": "または Ctrl+V で貼り付け",
 
     // Restore modal
     "restore.message": "前回の編集データが見つかりました。復元しますか？",
@@ -319,6 +320,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "drop.formats": "PNG / JPG / SVG / WebP",
     "drop.or": "or",
     "drop.selectFile": "Select file",
+    "drop.paste": "or paste with Ctrl+V",
 
     // Restore modal
     "restore.message": "Previous edit data found. Restore it?",
