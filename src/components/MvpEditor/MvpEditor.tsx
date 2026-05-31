@@ -29,6 +29,7 @@ import {
   FolderInput,
   Clock,
   Frame,
+  HelpCircle,
 } from "lucide-react";
 import {
   serializeProject,
@@ -3755,6 +3756,19 @@ export function MvpEditor() {
               aria-label="シェイプ"
             >
               <Square size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip label="ヘルプ (右クリックでも開けます)">
+            <button
+              type="button"
+              onClick={() => setShortcutPos({
+                x: Math.max(8, window.innerWidth / 2 - 130),
+                y: Math.max(8, window.innerHeight / 2 - 120),
+              })}
+              style={{ ...leftToolBtnStyle, marginTop: "auto" }}
+              aria-label="キーボードショートカット一覧を開く"
+            >
+              <HelpCircle size={18} />
             </button>
           </Tooltip>
         </div>
