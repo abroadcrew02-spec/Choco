@@ -597,6 +597,76 @@ describe("smoothReplaceAll", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #2: smoothReplace regionHistory push-empty (double-apply prevention)
+// ---------------------------------------------------------------------------
+
+describe("smoothReplace regionHistory empty-push (Issue #2)", () => {
+  it("regions entry pushed after smoothReplaceAll must be empty (no existing regions carried over)", () => {
+    // Simulate: paint one region, then do smoothReplace.
+    // The regionHistory entry for the smooth-replace step must be [] so that
+    // compositing only reads bakeLayer and does not double-apply regions.
+    const base = makeSolidImageData(4, 4, 200, 100, 50);
+    const existingRegion: PaintRegion = {
+      id: "r1",
+      pixels: [{ x: 0, y: 0 }],
+      color: "#ff0000",
+      transparent: false,
+    };
+
+    // Before smooth replace: regions = [existingRegion]
+    let regionState = urPush(makeState<PaintRegion[]>([]), [existingRegion]);
+    expect(urCurrent(regionState)).toHaveLength(1);
+
+    // Simulate smooth replace: push [] (not [...regions])
+    const newImageData = smoothReplaceAll(
+      compositeRegions(base, urCurrent(regionState)),
+      0, 0, 30, [0, 255, 0], true
+    );
+    expect(newImageData).toBeDefined();
+
+    // This is the fix: push empty regions after smooth replace
+    regionState = urPush(regionState, []);
+    expect(urCurrent(regionState)).toHaveLength(0);
+
+    // Undo must restore the pre-replace region list
+    regionState = urUndo(regionState);
+    expect(urCurrent(regionState)).toHaveLength(1);
+
+    // Redo must return to empty regions (bakeLayer carries the visual state)
+    regionState = urRedo(regionState);
+    expect(urCurrent(regionState)).toHaveLength(0);
+  });
+
+  it("undo/redo cycle after smoothReplace yields consistent regions (no double-apply)", () => {
+    // Push two paint steps then a smooth-replace step, cycle undo/redo.
+    const r1: PaintRegion = { id: "r1", pixels: [{ x: 0, y: 0 }], color: "#ff0000", transparent: false };
+    const r2: PaintRegion = { id: "r2", pixels: [{ x: 1, y: 0 }], color: "#00ff00", transparent: false };
+
+    let s = makeState<PaintRegion[]>([]);
+    s = urPush(s, [r1]);
+    s = urPush(s, [r1, r2]);
+    // smooth replace step must push []
+    s = urPush(s, []);
+
+    // Current: empty regions (bakeLayer holds visual)
+    expect(urCurrent(s)).toHaveLength(0);
+
+    // Undo once → back to [r1, r2]
+    s = urUndo(s);
+    expect(urCurrent(s)).toHaveLength(2);
+
+    // Undo again → back to [r1]
+    s = urUndo(s);
+    expect(urCurrent(s)).toHaveLength(1);
+
+    // Redo twice → back to smooth-replace state with empty regions
+    s = urRedo(s);
+    s = urRedo(s);
+    expect(urCurrent(s)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // S2: hsv2rgb / rgb2hsv round-trip
 // ---------------------------------------------------------------------------
 

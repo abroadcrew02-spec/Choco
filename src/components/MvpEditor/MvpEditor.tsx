@@ -1717,7 +1717,7 @@ export function MvpEditor() {
           }
           bakeLayerRef.current = newBake;
           pushBakeSnapshot(newBake);
-          regionHistory.push([...regions]);
+          regionHistory.push([]);
           triggerRedraw();
           addRecentColor(selectedColor);
           setStatus(`滑らか置換 → ${selectedColor}`);
