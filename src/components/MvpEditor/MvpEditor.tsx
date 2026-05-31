@@ -817,101 +817,99 @@ export function MvpEditor() {
     setHoverInfo(null);
   }, []);
 
-  const handleCanvasClick = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (spacePressed) return;
+  const handleTextPlace = useCallback(
+    (x: number, y: number) => {
+      setTextDraft({ x: snapCoord(x), y: snapCoord(y), value: "" });
+      // Focus will be handled by useEffect after render
+    },
+    [snapCoord]
+  );
+
+  const handleEyedropper = useCallback(
+    (x: number, y: number) => {
       if (!baseState.imageData) return;
-      // brush/shape mode uses mousedown/mousemove/mouseup, not click
-      if (mode === "brush" || mode === "shape") return;
-      const coords = getCanvasCoords(e);
-      if (!coords) return;
-      const { x, y } = coords;
+      const rgb = pickPixelColor(baseState.imageData, x, y);
+      if (!rgb) return;
+      const hex = rgbToHex(rgb[0], rgb[1], rgb[2]);
+      setSelectedColor(hex);
+      addRecentColor(hex);
+      setMode("color");
+      setStatus(`スポイト: ${hex.toUpperCase()} を選択`);
+    },
+    [baseState.imageData, addRecentColor]
+  );
 
-      // Text mode: place text input at click position (snap if enabled)
-      if (mode === "text") {
-        setTextDraft({ x: snapCoord(x), y: snapCoord(y), value: "" });
-        // Focus will be handled by useEffect after render
-        return;
-      }
-
-      // Eyedropper mode: pick color and switch back to color mode
-      if (mode === "eyedropper") {
-        const rgb = pickPixelColor(baseState.imageData, x, y);
-        if (!rgb) return;
-        const hex = rgbToHex(rgb[0], rgb[1], rgb[2]);
-        setSelectedColor(hex);
-        addRecentColor(hex);
-        setMode("color");
-        setStatus(`スポイト: ${hex.toUpperCase()} を選択`);
-        return;
-      }
-
-      // Replace-all mode: smooth or hard global color replacement
-      if (mode === "replace-all") {
-        if (smoothReplace) {
-          // smoothReplace modifies pixels directly; store result in bakeLayer
-          const newColor = hexToRgb(selectedColor);
-          const newImageData = smoothReplaceAll(
-            compositeRegions(baseState.imageData, regions, bakeLayerRef.current),
-            x, y, tolerance, newColor, true
-          );
-          // Store the result as an updated bakeLayer that encodes the full visual state.
-          // Strategy: bake current regions+bake into a new bakeLayer snapshot,
-          // then apply smooth replace on top of it.
-          // Since smoothReplace produces a new ImageData (base-relative), we store
-          // it as a "full bake" by diffing against base.
-          const w = baseState.naturalWidth;
-          const h = baseState.naturalHeight;
-          const newBake = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
-          const srcData = newImageData.data;
-          const bakeData = newBake.data;
-          for (let i = 0; i < w * h * 4; i++) {
-            bakeData[i] = srcData[i];
-          }
-          bakeLayerRef.current = newBake;
-          editorHistory.push([], newBake);
-          triggerRedraw();
-          addRecentColor(selectedColor);
-          setStatus(`滑らか置換 → ${selectedColor}`);
-          return;
+  const handleReplaceAll = useCallback(
+    (x: number, y: number) => {
+      if (!baseState.imageData) return;
+      if (smoothReplace) {
+        // smoothReplace modifies pixels directly; store result in bakeLayer
+        const newColor = hexToRgb(selectedColor);
+        const newImageData = smoothReplaceAll(
+          compositeRegions(baseState.imageData, regions, bakeLayerRef.current),
+          x, y, tolerance, newColor, true
+        );
+        // Store the result as an updated bakeLayer that encodes the full visual state.
+        // Strategy: bake current regions+bake into a new bakeLayer snapshot,
+        // then apply smooth replace on top of it.
+        // Since smoothReplace produces a new ImageData (base-relative), we store
+        // it as a "full bake" by diffing against base.
+        const w = baseState.naturalWidth;
+        const h = baseState.naturalHeight;
+        const newBake = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
+        const srcData = newImageData.data;
+        const bakeData = newBake.data;
+        for (let i = 0; i < w * h * 4; i++) {
+          bakeData[i] = srcData[i];
         }
-        let replacePixels = replaceAllSelect(baseState.imageData, x, y, tolerance);
-        if (replacePixels.length === 0) return;
-        if (closeRadius > 0) {
-          replacePixels = closeMask(replacePixels, baseState.naturalWidth, baseState.naturalHeight, closeRadius);
-        }
-
-        // S3: apply feather if featherRadius > 0
-        if (featherRadius > 0) {
-          const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
-          const newColor = hexToRgb(selectedColor);
-          const feathered = applyFeatheredFill(composited, replacePixels, newColor, featherRadius, false);
-          const w = baseState.naturalWidth;
-          const hh = baseState.naturalHeight;
-          const newBake2 = new ImageData(new Uint8ClampedArray(w * hh * 4), w, hh);
-          const srcData = feathered.data;
-          const bakeData2 = newBake2.data;
-          for (let idx2 = 0; idx2 < w * hh * 4; idx2++) bakeData2[idx2] = srcData[idx2];
-          bakeLayerRef.current = newBake2;
-          editorHistory.push([...regions], newBake2);
-          triggerRedraw();
-          addRecentColor(selectedColor);
-          setStatus(`一括置換 (フェザー${featherRadius}): ${replacePixels.length}px → ${selectedColor}`);
-          return;
-        }
-
-        const newRegion: PaintRegion = {
-          id: `region-${Date.now()}`,
-          pixels: replacePixels,
-          color: selectedColor,
-          transparent: false,
-        };
-        editorHistory.push([...regions, newRegion], bakeLayerRef.current);
+        bakeLayerRef.current = newBake;
+        editorHistory.push([], newBake);
+        triggerRedraw();
         addRecentColor(selectedColor);
-        setStatus(`一括置換: ${replacePixels.length}px → ${selectedColor}`);
+        setStatus(`滑らか置換 → ${selectedColor}`);
+        return;
+      }
+      let replacePixels = replaceAllSelect(baseState.imageData, x, y, tolerance);
+      if (replacePixels.length === 0) return;
+      if (closeRadius > 0) {
+        replacePixels = closeMask(replacePixels, baseState.naturalWidth, baseState.naturalHeight, closeRadius);
+      }
+
+      // Apply feather if featherRadius > 0
+      if (featherRadius > 0) {
+        const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
+        const newColor = hexToRgb(selectedColor);
+        const feathered = applyFeatheredFill(composited, replacePixels, newColor, featherRadius, false);
+        const w = baseState.naturalWidth;
+        const hh = baseState.naturalHeight;
+        const newBake2 = new ImageData(new Uint8ClampedArray(w * hh * 4), w, hh);
+        const srcData = feathered.data;
+        const bakeData2 = newBake2.data;
+        for (let idx2 = 0; idx2 < w * hh * 4; idx2++) bakeData2[idx2] = srcData[idx2];
+        bakeLayerRef.current = newBake2;
+        editorHistory.push([...regions], newBake2);
+        triggerRedraw();
+        addRecentColor(selectedColor);
+        setStatus(`一括置換 (フェザー${featherRadius}): ${replacePixels.length}px → ${selectedColor}`);
         return;
       }
 
+      const newRegion: PaintRegion = {
+        id: `region-${Date.now()}`,
+        pixels: replacePixels,
+        color: selectedColor,
+        transparent: false,
+      };
+      editorHistory.push([...regions, newRegion], bakeLayerRef.current);
+      addRecentColor(selectedColor);
+      setStatus(`一括置換: ${replacePixels.length}px → ${selectedColor}`);
+    },
+    [baseState, tolerance, selectedColor, regions, editorHistory, smoothReplace, closeRadius, featherRadius, triggerRedraw, addRecentColor]
+  );
+
+  const handleFloodFill = useCallback(
+    (x: number, y: number) => {
+      if (!baseState.imageData) return;
       // Color / transparent mode: flood fill (with optional 8-neighbor connectivity)
       let pixels = floodFillSelect(
         baseState.imageData, x, y, tolerance,
@@ -925,7 +923,7 @@ export function MvpEditor() {
         pixels = closeMask(pixels, baseState.naturalWidth, baseState.naturalHeight, closeRadius);
       }
 
-      // S3: apply feather if featherRadius > 0
+      // Apply feather if featherRadius > 0
       if (featherRadius > 0) {
         const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
         const newColor = hexToRgb(selectedColor);
@@ -963,7 +961,27 @@ export function MvpEditor() {
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, editorHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, featherRadius, triggerRedraw, addRecentColor, snapCoord]
+    [baseState, tolerance, selectedColor, mode, regions, editorHistory, includeAntialias, connectivity, closeRadius, featherRadius, triggerRedraw, addRecentColor]
+  );
+
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (spacePressed) return;
+      if (!baseState.imageData) return;
+      // brush/shape mode uses mousedown/mousemove/mouseup, not click
+      if (mode === "brush" || mode === "shape") return;
+      const coords = getCanvasCoords(e);
+      if (!coords) return;
+      const { x, y } = coords;
+
+      switch (mode) {
+        case "text":        return handleTextPlace(x, y);
+        case "eyedropper":  return handleEyedropper(x, y);
+        case "replace-all": return handleReplaceAll(x, y);
+        default:            return handleFloodFill(x, y);
+      }
+    },
+    [baseState.imageData, mode, spacePressed, getCanvasCoords, handleTextPlace, handleEyedropper, handleReplaceAll, handleFloodFill]
   );
 
   // ---------------------------------------------------------------------------
