@@ -69,6 +69,7 @@ import {
 } from "./components/GradientEditor";
 import { useEditorHistory } from "./hooks/useEditorHistory";
 import { useZoomPan } from "./hooks/useZoomPan";
+import { useKeyboardShortcuts, type EditorMode } from "./hooks/useKeyboardShortcuts";
 import { HsvPicker } from "./components/HsvPicker";
 import { Tooltip } from "./components/Tooltip";
 import { Toast, type ToastMessage } from "./components/Toast";
@@ -100,8 +101,6 @@ interface BaseState {
   naturalWidth: number;
   naturalHeight: number;
 }
-
-type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all" | "brush" | "text" | "shape";
 
 interface TextDraft {
   x: number;
@@ -477,113 +476,8 @@ export function MvpEditor() {
   }, [textDraft]);
 
 
-  // ---------------------------------------------------------------------------
-  // Keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+0, Space, I, R, B
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore bare tool shortcuts when an input element has focus.
-      // Modifier-based shortcuts (Ctrl/Meta) are always processed.
-      if (!e.ctrlKey && !e.metaKey && isInputFocused(e.target)) return;
-
-      if (e.code === "Space") {
-        e.preventDefault();
-        setSpacePressed(true);
-        return;
-      }
-      if (e.ctrlKey && e.key === "z") {
-        e.preventDefault();
-        editorHistory.undo();
-        triggerRedraw();
-        setStatus(t("status.undo", lang));
-        return;
-      }
-      if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) {
-        e.preventDefault();
-        editorHistory.redo();
-        triggerRedraw();
-        setStatus(t("status.redo", lang));
-        return;
-      }
-      if (e.ctrlKey && e.key === "0") {
-        e.preventDefault();
-        const container = containerRef.current;
-        if (container && baseState.naturalWidth > 0) {
-          zoom.fitToContainer(
-            container.clientWidth,
-            container.clientHeight,
-            baseState.naturalWidth,
-            baseState.naturalHeight
-          );
-        }
-        return;
-      }
-      // Ctrl+C: copy composited canvas to clipboard as PNG (Issue #8)
-      // Only fires when no input element is focused (text copy is handled by browser default).
-      if (e.ctrlKey && e.key === "c" && !isInputFocused(e.target)) {
-        e.preventDefault();
-        handleCopyToClipboard();
-        return;
-      }
-      // Ctrl+Shift+V: paste image as reference layer (Issue #24)
-      if (e.ctrlKey && e.shiftKey && e.key === "V") {
-        e.preventDefault();
-        handleReferencePaste();
-        return;
-      }
-      // Ctrl+V: paste image from clipboard (B-1)
-      if (e.ctrlKey && !e.shiftKey && e.key === "v") {
-        e.preventDefault();
-        handleClipboardPaste();
-        return;
-      }
-      // B = brush
-      if (!e.ctrlKey && !e.altKey && e.key === "b") {
-        setMode("brush");
-        return;
-      }
-      // I = eyedropper
-      if (!e.ctrlKey && !e.altKey && e.key === "i") {
-        setMode("eyedropper");
-        return;
-      }
-      // R = replace-all
-      if (!e.ctrlKey && !e.altKey && e.key === "r") {
-        setMode("replace-all");
-        return;
-      }
-      // T = text tool
-      if (!e.ctrlKey && !e.altKey && e.key === "t") {
-        setMode("text");
-        return;
-      }
-      // U = shape tool
-      if (!e.ctrlKey && !e.altKey && e.key === "u") {
-        setMode("shape");
-        return;
-      }
-      // Escape: cancel text draft
-      if (e.key === "Escape") {
-        setTextDraft(null);
-        return;
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        setSpacePressed(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorHistory, baseState.naturalWidth, baseState.naturalHeight, zoom, triggerRedraw]);
+  // Keyboard shortcuts are registered below, after the clipboard handlers
+  // they depend on are defined (see useKeyboardShortcuts call).
 
   // ---------------------------------------------------------------------------
   // Canvas redraw
@@ -1564,6 +1458,29 @@ export function MvpEditor() {
       });
     }, "image/png");
   }, [baseState.imageData, regions, bakeLayerRef, showToast]);
+
+  // ---------------------------------------------------------------------------
+  // Keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+0, Space, I, R, B
+  // Registered here (after clipboard handlers) so the handlers passed in are
+  // already defined — avoids a Temporal Dead Zone reference error.
+  // ---------------------------------------------------------------------------
+
+  useKeyboardShortcuts({
+    editorHistory,
+    zoom,
+    containerRef,
+    naturalWidth: baseState.naturalWidth,
+    naturalHeight: baseState.naturalHeight,
+    lang,
+    setMode,
+    setSpacePressed,
+    setStatus,
+    setTextDraft,
+    triggerRedraw,
+    handleCopyToClipboard,
+    handleReferencePaste,
+    handleClipboardPaste,
+  });
 
   // ---------------------------------------------------------------------------
   // B-1: Transparent white
