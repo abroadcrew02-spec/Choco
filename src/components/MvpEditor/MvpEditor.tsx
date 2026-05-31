@@ -17,6 +17,8 @@ import {
   Square,
   Droplets,
   Layers,
+  Palette,
+  List,
   Grid3x3,
   Magnet,
   RotateCw,
@@ -3402,17 +3404,19 @@ export function MvpEditor() {
               type="button"
               onClick={() => setShowPalette(true)}
               style={panelTabBtnStyle}
-              title="パレットを表示"
+              title={t("panel.palette", lang)}
+              aria-label={t("panel.palette", lang)}
             >
-              P
+              <Palette size={14} />
             </button>
             <button
               type="button"
               onClick={() => setShowMapping(true)}
               style={panelTabBtnStyle}
-              title="ログを表示"
+              title={t("panel.log", lang)}
+              aria-label={t("panel.log", lang)}
             >
-              L
+              <List size={14} />
             </button>
           </div>
         )}
