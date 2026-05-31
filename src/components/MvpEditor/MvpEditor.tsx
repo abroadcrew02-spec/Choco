@@ -2557,7 +2557,7 @@ export function MvpEditor() {
                 type="button"
                 onClick={handleSaveBrandSwatch}
                 style={btnStyle}
-                title={t("prop.saveColor", lang)}
+                title={t("prop.saveColorTooltip", lang)}
               >
                 {t("prop.saveColor", lang)}
               </button>
