@@ -26,6 +26,7 @@ import {
   AlignCenter,
   Save,
   FolderInput,
+  Clock,
 } from "lucide-react";
 import {
   serializeProject,
@@ -33,6 +34,13 @@ import {
   downloadChocoFile,
   openChocoFile,
 } from "./lib/projectIO";
+import {
+  addRecentFile,
+  getRecentFiles,
+  makeThumbnail,
+  formatRelativeTime,
+  type RecentFileEntry,
+} from "./lib/recentFiles";
 import { useAutoSave } from "./hooks/useAutoSave";
 import {
   GradientEditor,
@@ -1347,6 +1355,11 @@ export function MvpEditor() {
   // Issue #5: autosave restore modal
   const [showRestoreModal, setShowRestoreModal] = useState<boolean>(false);
 
+  // Issue #7: recent files dropdown
+  const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>(() => getRecentFiles());
+  const [recentMenuOpen, setRecentMenuOpen] = useState<boolean>(false);
+  const recentMenuRef = useRef<HTMLDivElement>(null);
+
   // S8: grid / snap
   const [gridEnabled, setGridEnabled] = useState<boolean>(false);
   const [snapEnabled, setSnapEnabled] = useState<boolean>(false);
@@ -1396,6 +1409,21 @@ export function MvpEditor() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Issue #7: close recent-files dropdown on outside click
+  useEffect(() => {
+    if (!recentMenuOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (
+        recentMenuRef.current &&
+        !recentMenuRef.current.contains(e.target as Node)
+      ) {
+        setRecentMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [recentMenuOpen]);
 
   // ---------------------------------------------------------------------------
   // S3: Toast helper
@@ -1634,6 +1662,10 @@ export function MvpEditor() {
             editorHistory.reset();
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`画像読み込み完了: ${w}x${h}`);
+            // Issue #7: record recent file
+            const thumb = makeThumbnail(imageData);
+            addRecentFile(file.name, thumb);
+            setRecentFiles(getRecentFiles());
             // B-1: auto-fit on load
             tryFitContainer(w, h);
           };
@@ -1664,6 +1696,10 @@ export function MvpEditor() {
         editorHistory.reset();
         setPalette(extractPaletteColors(imageData, 8));
         setStatus(`画像読み込み完了: ${w}x${h}`);
+        // Issue #7: record recent file
+        const thumb = makeThumbnail(imageData);
+        addRecentFile(file.name, thumb);
+        setRecentFiles(getRecentFiles());
         // B-1: auto-fit on load
         tryFitContainer(w, h);
       };
@@ -2783,6 +2819,104 @@ export function MvpEditor() {
             <FolderInput size={16} />
           </button>
         </Tooltip>
+
+        {/* Issue #7: Recent files dropdown */}
+        <div ref={recentMenuRef} style={{ position: "relative" }}>
+          <Tooltip label="最近開いたファイル">
+            <button
+              type="button"
+              onClick={() => setRecentMenuOpen((v) => !v)}
+              style={recentFiles.length === 0 ? { ...iconBtnStyle, opacity: 0.35 } : iconBtnStyle}
+              aria-label="最近開いたファイル"
+              aria-haspopup="listbox"
+              aria-expanded={recentMenuOpen}
+            >
+              <Clock size={16} />
+            </button>
+          </Tooltip>
+          {recentMenuOpen && recentFiles.length > 0 && (
+            <div
+              role="listbox"
+              aria-label="最近開いたファイル一覧"
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                left: 0,
+                zIndex: 200,
+                background: T.color.bgElevated,
+                border: `1px solid ${T.color.borderMid}`,
+                borderRadius: T.radius.md,
+                boxShadow: T.shadow.elevated,
+                minWidth: 220,
+                padding: "4px 0",
+              }}
+            >
+              {recentFiles.map((entry) => (
+                <button
+                  key={entry.name + entry.lastAccessedAt}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => {
+                    setRecentMenuOpen(false);
+                    fileInputRef.current?.click();
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: T.space.sm,
+                    width: "100%",
+                    padding: `${T.space.xs}px ${T.space.sm}px`,
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: T.color.textPrimary,
+                    fontFamily: T.font.family,
+                    fontSize: T.font.body,
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = T.color.bgPanel;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                  }}
+                >
+                  <img
+                    src={entry.thumbnailDataUrl}
+                    alt=""
+                    aria-hidden="true"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      objectFit: "contain",
+                      borderRadius: T.radius.sm,
+                      border: `1px solid ${T.color.border}`,
+                      background: T.color.checkerA,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ overflow: "hidden", flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: T.font.body,
+                        color: T.color.textPrimary,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {entry.name}
+                    </div>
+                    <div style={{ fontSize: T.font.badge, color: T.color.textMuted }}>
+                      {formatRelativeTime(entry.lastAccessedAt)}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div style={dividerStyle} />
 

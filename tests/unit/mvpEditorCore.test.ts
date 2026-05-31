@@ -8,7 +8,7 @@
  * - UndoRedo state machine: history limit 10, undo/redo chains
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import {
   compositeRegions,
   floodFillSelect,
@@ -1438,5 +1438,119 @@ describe("Issue #4: EditorHistory — regions + bakeLayer atomic sync", () => {
     }
     expect(s.history.length).toBe(EDITOR_HISTORY_LIMIT);
     expect(s.index).toBe(EDITOR_HISTORY_LIMIT - 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recentFiles — localStorage helpers
+// ---------------------------------------------------------------------------
+
+import {
+  addRecentFile,
+  getRecentFiles,
+  clearRecentFiles,
+  formatRelativeTime,
+  RECENT_FILES_MAX,
+  RECENT_FILES_KEY,
+} from "../../src/components/MvpEditor/lib/recentFiles";
+
+describe("recentFiles", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("getRecentFiles returns [] when localStorage is empty", () => {
+    expect(getRecentFiles()).toEqual([]);
+  });
+
+  it("addRecentFile stores an entry and getRecentFiles returns it", () => {
+    addRecentFile("logo.png", "data:image/png;base64,AAA");
+    const entries = getRecentFiles();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].name).toBe("logo.png");
+    expect(entries[0].thumbnailDataUrl).toBe("data:image/png;base64,AAA");
+    expect(typeof entries[0].lastAccessedAt).toBe("string");
+  });
+
+  it("addRecentFile deduplicates by name — newer entry replaces older", () => {
+    addRecentFile("logo.png", "data:image/png;base64,AAA");
+    addRecentFile("logo.png", "data:image/png;base64,BBB");
+    const entries = getRecentFiles();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].thumbnailDataUrl).toBe("data:image/png;base64,BBB");
+  });
+
+  it(`addRecentFile keeps at most ${RECENT_FILES_MAX} entries`, () => {
+    for (let i = 0; i < RECENT_FILES_MAX + 3; i++) {
+      addRecentFile(`file${i}.png`, `data:image/png;base64,${i}`);
+    }
+    const entries = getRecentFiles();
+    expect(entries).toHaveLength(RECENT_FILES_MAX);
+    // Newest entry should be first
+    expect(entries[0].name).toBe(`file${RECENT_FILES_MAX + 2}.png`);
+  });
+
+  it("clearRecentFiles removes all entries", () => {
+    addRecentFile("a.png", "data:image/png;base64,A");
+    clearRecentFiles();
+    expect(getRecentFiles()).toEqual([]);
+    expect(localStorage.getItem(RECENT_FILES_KEY)).toBeNull();
+  });
+
+  it("getRecentFiles returns [] when localStorage contains invalid JSON", () => {
+    localStorage.setItem(RECENT_FILES_KEY, "not-json{{{");
+    expect(getRecentFiles()).toEqual([]);
+  });
+
+  it("getRecentFiles filters out entries missing required fields", () => {
+    localStorage.setItem(
+      RECENT_FILES_KEY,
+      JSON.stringify([
+        { name: "ok.png", thumbnailDataUrl: "data:image/png;base64,X", lastAccessedAt: "2025-01-01T00:00:00Z" },
+        { name: "missing-thumb" },
+        null,
+        42,
+      ])
+    );
+    const entries = getRecentFiles();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].name).toBe("ok.png");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatRelativeTime
+// ---------------------------------------------------------------------------
+
+describe("formatRelativeTime", () => {
+  it("returns '今' for timestamps less than 60 seconds ago", () => {
+    const iso = new Date(Date.now() - 30_000).toISOString();
+    expect(formatRelativeTime(iso)).toBe("今");
+  });
+
+  it("returns 'N分前' for timestamps within the last hour", () => {
+    const iso = new Date(Date.now() - 5 * 60_000).toISOString();
+    expect(formatRelativeTime(iso)).toBe("5分前");
+  });
+
+  it("returns 'N時間前' for timestamps within the last day", () => {
+    const iso = new Date(Date.now() - 3 * 3600_000).toISOString();
+    expect(formatRelativeTime(iso)).toBe("3時間前");
+  });
+
+  it("returns 'N日前' for timestamps within 14 days", () => {
+    const iso = new Date(Date.now() - 4 * 86400_000).toISOString();
+    expect(formatRelativeTime(iso)).toBe("4日前");
+  });
+
+  it("returns 'M/D' for timestamps older than 14 days", () => {
+    const d = new Date(Date.now() - 20 * 86400_000);
+    const iso = d.toISOString();
+    const expected = `${d.getMonth() + 1}/${d.getDate()}`;
+    expect(formatRelativeTime(iso)).toBe(expected);
+  });
+
+  it("returns '' for invalid date strings", () => {
+    expect(formatRelativeTime("not-a-date")).toBe("");
   });
 });
