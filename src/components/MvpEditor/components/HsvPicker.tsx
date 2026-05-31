@@ -5,6 +5,9 @@ import {
   analogous,
   splitComplementary,
 } from "../lib/colorHarmony";
+import { formatColor, type ColorFormat } from "../lib/colorFormats";
+
+const COLOR_FORMATS: ColorFormat[] = ["HEX", "RGB", "HSL", "CMYK"];
 
 // ---------------------------------------------------------------------------
 // HSV color conversions (ported from logo_recolor_4.html)
@@ -298,6 +301,9 @@ export function HsvPicker({ hex, onChange, onClose }: HsvPickerProps): JSX.Eleme
     setHexInput(hex.toUpperCase());
   }, [hex]);
 
+  // Color format toggle state
+  const [colorFormat, setColorFormat] = useState<ColorFormat>("HEX");
+
   // Harmony swatches derived from current hex
   const harmonyGroups: Array<{ label: string; colors: string[] }> = [
     { label: "補色", colors: [complementary(hex)] },
@@ -337,9 +343,39 @@ export function HsvPicker({ hex, onChange, onClose }: HsvPickerProps): JSX.Eleme
         style={{ display: "block", cursor: "crosshair" }}
         onMouseDown={handleMouseDown}
       />
+      {/* Format toggle */}
       <div
         style={{
           marginTop: 8,
+          display: "flex",
+          gap: 2,
+        }}
+      >
+        {COLOR_FORMATS.map((fmt) => (
+          <button
+            key={fmt}
+            type="button"
+            onClick={() => setColorFormat(fmt)}
+            style={{
+              flex: 1,
+              padding: "2px 0",
+              fontSize: 10,
+              background: colorFormat === fmt ? "#666" : "#333",
+              color: colorFormat === fmt ? "#fff" : "rgba(255,255,255,0.5)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 3,
+              cursor: "pointer",
+            }}
+          >
+            {fmt}
+          </button>
+        ))}
+      </div>
+
+      {/* Color value display / input */}
+      <div
+        style={{
+          marginTop: 6,
           display: "flex",
           alignItems: "center",
           gap: 6,
@@ -355,24 +391,45 @@ export function HsvPicker({ hex, onChange, onClose }: HsvPickerProps): JSX.Eleme
             flexShrink: 0,
           }}
         />
-        <input
-          type="text"
-          value={hexInput}
-          onChange={handleHexInput}
-          maxLength={7}
-          style={{
-            flex: 1,
-            background: "#444",
-            color: "#eee",
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 3,
-            padding: "4px 6px",
-            fontSize: 12,
-            fontFamily: "monospace",
-            textTransform: "uppercase",
-          }}
-          spellCheck={false}
-        />
+        {colorFormat === "HEX" ? (
+          <input
+            type="text"
+            aria-label="HEXカラー値"
+            value={hexInput}
+            onChange={handleHexInput}
+            maxLength={7}
+            style={{
+              flex: 1,
+              background: "#444",
+              color: "#eee",
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 3,
+              padding: "4px 6px",
+              fontSize: 12,
+              fontFamily: "monospace",
+              textTransform: "uppercase",
+            }}
+            spellCheck={false}
+          />
+        ) : (
+          <input
+            type="text"
+            aria-label={`${colorFormat}カラー値`}
+            readOnly
+            value={formatColor(hex, colorFormat)}
+            style={{
+              flex: 1,
+              background: "#333",
+              color: "rgba(255,255,255,0.7)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 3,
+              padding: "4px 6px",
+              fontSize: 11,
+              fontFamily: "monospace",
+              cursor: "default",
+            }}
+          />
+        )}
       </div>
 
       {/* Color harmony section */}

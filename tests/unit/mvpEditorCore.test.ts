@@ -2135,3 +2135,53 @@ describe("splitComplementary", () => {
     expect(diffB).toBeCloseTo(30, 0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #28: colorFormats — rgbToCmyk + formatColor
+// ---------------------------------------------------------------------------
+
+import {
+  rgbToCmyk,
+  formatColor,
+} from "../../src/components/MvpEditor/lib/colorFormats";
+
+describe("rgbToCmyk", () => {
+  it("converts pure red (255,0,0) to C=0 M=100 Y=100 K=0", () => {
+    expect(rgbToCmyk(255, 0, 0)).toEqual([0, 100, 100, 0]);
+  });
+
+  it("converts pure white (255,255,255) to all zeros", () => {
+    expect(rgbToCmyk(255, 255, 255)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("converts pure black (0,0,0) to K=100", () => {
+    expect(rgbToCmyk(0, 0, 0)).toEqual([0, 0, 0, 100]);
+  });
+
+  it("converts pure blue (0,0,255) to C=100 M=100 Y=0 K=0", () => {
+    expect(rgbToCmyk(0, 0, 255)).toEqual([100, 100, 0, 0]);
+  });
+});
+
+describe("formatColor", () => {
+  it("formats HEX as uppercase hex string", () => {
+    expect(formatColor("#ff0000", "HEX")).toBe("#FF0000");
+  });
+
+  it("formats RGB as comma-separated r, g, b values", () => {
+    expect(formatColor("#ff0000", "RGB")).toBe("255, 0, 0");
+  });
+
+  it("formats HSL with degree and percent values", () => {
+    const result = formatColor("#ff0000", "HSL");
+    expect(result).toMatch(/^0, 100%, 50%$/);
+  });
+
+  it("formats CMYK as percent values for pure red", () => {
+    expect(formatColor("#ff0000", "CMYK")).toBe("0%, 100%, 100%, 0%");
+  });
+
+  it("formats CMYK for black correctly", () => {
+    expect(formatColor("#000000", "CMYK")).toBe("0%, 0%, 0%, 100%");
+  });
+});
