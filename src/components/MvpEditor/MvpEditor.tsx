@@ -28,6 +28,7 @@ import {
   Save,
   FolderInput,
   Clock,
+  Frame,
 } from "lucide-react";
 import {
   serializeProject,
@@ -43,6 +44,14 @@ import {
   type RecentFileEntry,
 } from "./lib/recentFiles";
 import { useAutoSave } from "./hooks/useAutoSave";
+import {
+  cropImageData,
+  scaleImageData,
+  cropRegion,
+  scaleRegion,
+} from "./lib/canvasResize";
+import { CanvasSizeModal } from "./components/CanvasSizeModal";
+import type { AnchorPosition, ResizeMode } from "./lib/canvasResize";
 import {
   GradientEditor,
   type FillType,
@@ -1371,6 +1380,9 @@ export function MvpEditor() {
   const [draftFlipX, setDraftFlipX] = useState<boolean>(false);
   const [draftFlipY, setDraftFlipY] = useState<boolean>(false);
 
+  // Issue #9: canvas size modal
+  const [canvasSizeModalOpen, setCanvasSizeModalOpen] = useState<boolean>(false);
+
   const zoom = useZoomPan(spacePressed);
 
   // ---------------------------------------------------------------------------
@@ -2517,6 +2529,58 @@ export function MvpEditor() {
   }, [baseState.imageData, regions, editorHistory, showToast]);
 
   // ---------------------------------------------------------------------------
+  // Issue #9: Canvas size change (crop / scale)
+  // ---------------------------------------------------------------------------
+
+  const handleCanvasSizeApply = useCallback(
+    (newW: number, newH: number, anchor: AnchorPosition, mode: ResizeMode) => {
+      if (!baseState.imageData) return;
+
+      const oldW = baseState.naturalWidth;
+      const oldH = baseState.naturalHeight;
+
+      // Transform base ImageData
+      const newBaseImageData =
+        mode === "crop"
+          ? cropImageData(baseState.imageData, newW, newH, anchor)
+          : scaleImageData(baseState.imageData, newW, newH);
+
+      // Transform bakeLayer if present
+      let newBakeLayer: ImageData | null = null;
+      if (bakeLayerRef.current) {
+        newBakeLayer =
+          mode === "crop"
+            ? cropImageData(bakeLayerRef.current, newW, newH, anchor)
+            : scaleImageData(bakeLayerRef.current, newW, newH);
+      }
+
+      // Transform all regions
+      const newRegions = regions.map((r) =>
+        mode === "crop"
+          ? cropRegion(r, oldW, oldH, newW, newH, anchor)
+          : scaleRegion(r, oldW, oldH, newW, newH)
+      );
+
+      // Update bakeLayerRef before push so history snapshot captures new layer
+      bakeLayerRef.current = newBakeLayer;
+
+      // Commit as a single undo-able action
+      editorHistory.push(newRegions, newBakeLayer);
+
+      setBaseState({
+        imageData: newBaseImageData,
+        naturalWidth: newW,
+        naturalHeight: newH,
+      });
+
+      setCanvasSizeModalOpen(false);
+      setStatus(`キャンバスサイズ変更: ${newW} × ${newH} px`);
+      showToast(`キャンバスサイズ: ${newW} × ${newH}`);
+    },
+    [baseState, regions, editorHistory, showToast]
+  );
+
+  // ---------------------------------------------------------------------------
   // B-2: Save brand swatch
   // ---------------------------------------------------------------------------
 
@@ -3057,6 +3121,19 @@ export function MvpEditor() {
             aria-label="白を透過"
           >
             <Wand2 size={16} />
+          </button>
+        </Tooltip>
+
+        {/* Issue #9: Canvas size */}
+        <Tooltip label="キャンバスサイズ変更">
+          <button
+            type="button"
+            onClick={() => setCanvasSizeModalOpen(true)}
+            disabled={!baseState.imageData}
+            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            aria-label="キャンバスサイズ変更"
+          >
+            <Frame size={16} />
           </button>
         </Tooltip>
 
@@ -4206,6 +4283,16 @@ export function MvpEditor() {
           naturalHeight={baseState.naturalHeight}
           onExport={handleExport}
           onClose={() => setExportModalOpen(false)}
+        />
+      )}
+
+      {/* Issue #9: Canvas size modal */}
+      {canvasSizeModalOpen && baseState.imageData && (
+        <CanvasSizeModal
+          currentWidth={baseState.naturalWidth}
+          currentHeight={baseState.naturalHeight}
+          onApply={handleCanvasSizeApply}
+          onClose={() => setCanvasSizeModalOpen(false)}
         />
       )}
     </div>
