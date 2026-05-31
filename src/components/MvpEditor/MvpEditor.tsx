@@ -3886,9 +3886,11 @@ export function MvpEditor() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
+                    e.stopPropagation();
                     if (textDraft) commitTextDraft(textDraft);
                   } else if (e.key === "Escape") {
                     e.preventDefault();
+                    e.stopPropagation();
                     setTextDraft(null);
                   }
                 }}

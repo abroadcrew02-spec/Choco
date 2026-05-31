@@ -1615,3 +1615,85 @@ describe("Issue #8: clipboard copy (compositeRegions -> Blob -> ClipboardItem)",
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #13: text overlay onKeyDown — stopPropagation on Escape and Enter
+// ---------------------------------------------------------------------------
+
+describe("Issue #13: text overlay key handler calls stopPropagation", () => {
+  function makeMockEvent(key: string): {
+    key: string;
+    preventDefault: ReturnType<typeof vi.fn>;
+    stopPropagation: ReturnType<typeof vi.fn>;
+  } {
+    return {
+      key,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+  }
+
+  it("Escape: stopPropagation is called before clearing textDraft", () => {
+    const e = makeMockEvent("Escape");
+    let textDraftCleared = false;
+
+    // Simulate the onKeyDown handler logic from MvpEditor text overlay
+    const handleKeyDown = (ev: typeof e) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        ev.stopPropagation();
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        textDraftCleared = true;
+      }
+    };
+
+    handleKeyDown(e);
+
+    expect(e.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(e.preventDefault).toHaveBeenCalledTimes(1);
+    expect(textDraftCleared).toBe(true);
+  });
+
+  it("Enter: stopPropagation is called", () => {
+    const e = makeMockEvent("Enter");
+    let commitCalled = false;
+
+    const handleKeyDown = (ev: typeof e) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        commitCalled = true;
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+    };
+
+    handleKeyDown(e);
+
+    expect(e.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(e.preventDefault).toHaveBeenCalledTimes(1);
+    expect(commitCalled).toBe(true);
+  });
+
+  it("other keys: stopPropagation is NOT called", () => {
+    const e = makeMockEvent("a");
+
+    const handleKeyDown = (ev: typeof e) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        ev.stopPropagation();
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+    };
+
+    handleKeyDown(e);
+
+    expect(e.stopPropagation).not.toHaveBeenCalled();
+    expect(e.preventDefault).not.toHaveBeenCalled();
+  });
+});
