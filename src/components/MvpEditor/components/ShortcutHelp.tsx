@@ -31,6 +31,8 @@ const SHORTCUTS: { key: string; action: string; isSection?: boolean }[] = [
   { key: "R", action: "同色一括置換" },
   { key: "G", action: "色変更 (Color)" },
   { key: "E", action: "透過 (Transparent)" },
+  { key: "T", action: "テキスト" },
+  { key: "U", action: "シェイプ" },
 ];
 
 const PANEL_BG = "#1c1c1c";
