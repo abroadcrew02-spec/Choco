@@ -26,6 +26,8 @@ import {
   simplifyPath,
   normalizeBbox,
   marchingSquaresPath,
+  exportImageData,
+  buildSvg,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 import {
@@ -1738,5 +1740,124 @@ describe("Issue #13: text overlay key handler calls stopPropagation", () => {
 
     expect(e.stopPropagation).not.toHaveBeenCalled();
     expect(e.preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #15: exportImageData — uses toBlob + URL.createObjectURL/revokeObjectURL
+// (not toDataURL) so that large PNG exports do not hold base64 strings in memory.
+// ---------------------------------------------------------------------------
+
+describe("Issue #15: exportImageData uses toBlob + objectURL (no base64 hold)", () => {
+  it("calls canvas.toBlob (not toDataURL) to avoid base64 memory hold", () => {
+    const toBlobMock = vi.fn();
+    const toDataURLMock = vi.fn();
+
+    const mockCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => mockCtx),
+      toBlob: toBlobMock,
+      toDataURL: toDataURLMock,
+    };
+
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "canvas") return mockCanvas as unknown as HTMLCanvasElement;
+      return origCreate(tag);
+    });
+
+    const imageData = makeSolidImageData(2, 2, 100, 150, 200);
+    exportImageData(imageData, 2, 2, "image/png", 100, "test.png");
+
+    expect(toBlobMock).toHaveBeenCalledOnce();
+    expect(toDataURLMock).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it("calls URL.revokeObjectURL after triggering the download anchor click", () => {
+    const revokeObjectURLMock = vi.fn();
+    const createObjectURLMock = vi.fn(() => "blob:mock-url");
+    const anchorClickMock = vi.fn();
+
+    const origURLCreate = URL.createObjectURL;
+    const origURLRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = createObjectURLMock;
+    URL.revokeObjectURL = revokeObjectURLMock;
+
+    const mockCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    let capturedToBlobCallback: ((blob: Blob | null) => void) | null = null;
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => mockCtx),
+      toBlob: vi.fn((cb: (blob: Blob | null) => void) => {
+        capturedToBlobCallback = cb;
+      }),
+    };
+
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "canvas") return mockCanvas as unknown as HTMLCanvasElement;
+      if (tag === "a") {
+        const a = origCreate("a");
+        vi.spyOn(a, "click").mockImplementation(anchorClickMock);
+        return a;
+      }
+      return origCreate(tag);
+    });
+
+    const imageData = makeSolidImageData(4, 4, 255, 0, 0);
+    exportImageData(imageData, 4, 4, "image/png", 100, "export.png");
+
+    // Simulate toBlob callback with a fake Blob
+    const fakeBlob = new Blob(["fake-png-data"], { type: "image/png" });
+    capturedToBlobCallback!(fakeBlob);
+
+    expect(createObjectURLMock).toHaveBeenCalledWith(fakeBlob);
+    expect(anchorClickMock).toHaveBeenCalledOnce();
+    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:mock-url");
+
+    URL.createObjectURL = origURLCreate;
+    URL.revokeObjectURL = origURLRevoke;
+    vi.restoreAllMocks();
+  });
+
+  it("buildSvg embeds PNG as base64 data URL inside <image href> (SVG internal use — required)", () => {
+    const imageData = makeSolidImageData(2, 2, 0, 128, 255);
+
+    const mockCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => mockCtx),
+      toDataURL: vi.fn(() => "data:image/png;base64,MOCK"),
+    };
+
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "canvas") return mockCanvas as unknown as HTMLCanvasElement;
+      return origCreate(tag);
+    });
+
+    const svg = buildSvg(imageData, [], 2, 2);
+    expect(svg).toContain('href="data:image/png;base64,');
+
+    vi.restoreAllMocks();
   });
 });
