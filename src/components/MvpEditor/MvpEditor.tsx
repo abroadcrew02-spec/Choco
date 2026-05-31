@@ -76,6 +76,7 @@ import {
 } from "./components/ExportModal";
 
 import { T } from "./theme/tokens";
+import { useLang, t } from "./lib/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -258,7 +259,7 @@ export function MvpEditor() {
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
   const [brushSize, setBrushSize] = useState(DEFAULT_BRUSH_SIZE);
   const [smoothReplace, setSmoothReplace] = useState(false);
-  const [status, setStatus] = useState("画像を読み込んでください");
+  const [status, setStatus] = useState(() => t("status.loadImage", "ja"));
   const [spacePressed, setSpacePressed] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<string | null>(null);
   const [palette, setPalette] = useState<string[]>([]);
@@ -354,6 +355,8 @@ export function MvpEditor() {
   const [referenceImage, setReferenceImage] = useState<ImageData | null>(null);
   const [referenceOpacity, setReferenceOpacity] = useState<number>(50);
 
+  const { lang, setLang } = useLang();
+
   const zoom = useZoomPan(spacePressed);
 
   // ---------------------------------------------------------------------------
@@ -374,12 +377,12 @@ export function MvpEditor() {
   }, [baseState, regions, selectedColor, tolerance]);
 
   const autoSave = useAutoSave(getAutoSaveState, !!baseState.imageData, {
-    onSave: () => setStatus("自動保存しました"),
+    onSave: () => setStatus(t("status.autoSaved", lang)),
     onError: () => {
-      setStatus("自動保存できませんでした（容量超過）");
+      setStatus(t("status.autoSaveError", lang));
       toastIdRef.current += 1;
       setCurrentToast({
-        message: "オートセーブできませんでした（容量超過）",
+        message: t("status.autoSaveToast", lang),
         type: "error",
         id: toastIdRef.current,
       });
@@ -470,14 +473,14 @@ export function MvpEditor() {
         e.preventDefault();
         editorHistory.undo();
         triggerRedraw();
-        setStatus("元に戻しました");
+        setStatus(t("status.undo", lang));
         return;
       }
       if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) {
         e.preventDefault();
         editorHistory.redo();
         triggerRedraw();
-        setStatus("やり直しました");
+        setStatus(t("status.redo", lang));
         return;
       }
       if (e.ctrlKey && e.key === "0") {
@@ -821,7 +824,7 @@ export function MvpEditor() {
       setSelectedColor(hex);
       addRecentColor(hex);
       setMode("color");
-      setStatus(`スポイト: ${hex.toUpperCase()} を選択`);
+      setStatus(`${t("status.eyedropper", lang)}: ${hex.toUpperCase()}`);
     },
     [baseState.imageData, addRecentColor]
   );
@@ -849,7 +852,7 @@ export function MvpEditor() {
         editorHistory.push([], newBake);
         triggerRedraw();
         addRecentColor(selectedColor);
-        setStatus(`滑らか置換 → ${selectedColor}`);
+        setStatus(`${t("status.replaceAllSmooth", lang)} → ${selectedColor}`);
         return;
       }
       let replacePixels = replaceAllSelect(baseState.imageData, x, y, tolerance);
@@ -871,7 +874,7 @@ export function MvpEditor() {
         editorHistory.push([...regions], newBake2);
         triggerRedraw();
         addRecentColor(selectedColor);
-        setStatus(`一括置換 (フェザー${featherRadius}): ${replacePixels.length}px → ${selectedColor}`);
+        setStatus(`${t("status.replaceAllFeather", lang)}${featherRadius}): ${replacePixels.length}px → ${selectedColor}`);
         return;
       }
 
@@ -883,7 +886,7 @@ export function MvpEditor() {
       };
       editorHistory.push([...regions, newRegion], bakeLayerRef.current);
       addRecentColor(selectedColor);
-      setStatus(`一括置換: ${replacePixels.length}px → ${selectedColor}`);
+      setStatus(`${t("status.replaceAll", lang)}: ${replacePixels.length}px → ${selectedColor}`);
     },
     [baseState, tolerance, selectedColor, regions, editorHistory, smoothReplace, closeRadius, featherRadius, triggerRedraw, addRecentColor]
   );
@@ -919,8 +922,8 @@ export function MvpEditor() {
         if (mode !== "transparent") addRecentColor(selectedColor);
         setStatus(
           mode === "transparent"
-            ? `透過 (フェザー${featherRadius}): ${pixels.length}px`
-            : `色変更 (フェザー${featherRadius}): ${pixels.length}px → ${selectedColor}`
+            ? `${t("status.transparentFeather", lang)}${featherRadius}): ${pixels.length}px`
+            : `${t("status.colorChangeFeather", lang)}${featherRadius}): ${pixels.length}px → ${selectedColor}`
         );
         return;
       }
@@ -936,8 +939,8 @@ export function MvpEditor() {
       if (mode !== "transparent") addRecentColor(selectedColor);
       setStatus(
         mode === "transparent"
-          ? `透過: ${pixels.length}px 選択`
-          : `色変更: ${pixels.length}px → ${selectedColor}`
+          ? `${t("status.transparent", lang)}: ${pixels.length}px`
+          : `${t("status.colorChange", lang)}: ${pixels.length}px → ${selectedColor}`
       );
     },
     [baseState, tolerance, selectedColor, mode, regions, editorHistory, includeAntialias, connectivity, closeRadius, featherRadius, triggerRedraw, addRecentColor]
@@ -1054,7 +1057,7 @@ export function MvpEditor() {
 
     // Commit stroke to undo history
     editorHistory.push([...regions], bakeLayerRef.current);
-    setStatus(`ブラシ描画`);
+    setStatus(t("status.brushDraw", lang));
   }, [editorHistory, regions]);
 
   /**
@@ -1158,7 +1161,7 @@ export function MvpEditor() {
       editorHistory.push([...regions], newBake);
       triggerRedraw();
       addRecentColor(selectedColor);
-      setStatus(`テキスト描画: "${draft.value}"`);
+      setStatus(`${t("status.textDrawn", lang)}: "${draft.value}"`);
       setTextDraft(null);
     },
     [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, opacity, blendMode, fillType, gradientConfig, regions, editorHistory, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
@@ -1283,7 +1286,7 @@ export function MvpEditor() {
       }
       triggerRedraw();
       addRecentColor(selectedColor);
-      setStatus(`シェイプ描画: ${shapeKind}`);
+      setStatus(`${t("status.shapeDrawn", lang)}: ${shapeKind}`);
     },
     [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, opacity, blendMode, fillType, gradientConfig, regions, editorHistory, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
   );
@@ -1347,7 +1350,7 @@ export function MvpEditor() {
     (id: string) => {
       const next = regions.filter((r) => r.id !== id);
       editorHistory.push(next, bakeLayerRef.current);
-      setStatus("リージョンを削除しました");
+      setStatus(t("status.regionRemoved", lang));
     },
     [regions, editorHistory]
   );
@@ -1407,24 +1410,24 @@ export function MvpEditor() {
 
   const handleClipboardPaste = useCallback(async () => {
     if (!navigator.clipboard?.read) {
-      setStatus("クリップボードAPIが利用できません");
+      setStatus(t("status.clipboardNoApi", lang));
       return;
     }
     let items: ClipboardItems;
     try {
       items = await navigator.clipboard.read();
     } catch {
-      setStatus("クリップボードへのアクセスが拒否されました");
+      setStatus(t("status.clipboardDenied", lang));
       return;
     }
     for (const item of items) {
-      const imageType = item.types.find((t) => t.startsWith("image/"));
+      const imageType = item.types.find((tp) => tp.startsWith("image/"));
       if (!imageType) continue;
       let blob: Blob;
       try {
         blob = await item.getType(imageType);
       } catch {
-        setStatus("クリップボード読み込みエラー");
+        setStatus(t("status.clipboardReadError", lang));
         return;
       }
       const url = URL.createObjectURL(blob);
@@ -1432,7 +1435,7 @@ export function MvpEditor() {
       await new Promise<void>((resolve) => {
         img.onload = () => resolve();
         img.onerror = () => {
-          setStatus("クリップボード画像の読み込みに失敗しました");
+          setStatus(t("status.clipboardImageLoadFailed", lang));
           URL.revokeObjectURL(url);
           resolve();
         };
@@ -1451,13 +1454,13 @@ export function MvpEditor() {
       setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
       editorHistory.reset();
       setPalette(extractPaletteColors(imageData, 8));
-      setStatus(`クリップボードから読み込み: ${w}x${h}`);
+      setStatus(`${t("status.clipboardLoaded", lang)}: ${w}x${h}`);
       // auto-fit on paste
       tryFitContainer(w, h);
       return;
     }
-    setStatus("クリップボードに画像がありません");
-  }, [editorHistory, tryFitContainer]);
+    setStatus(t("status.clipboardNoImage", lang));
+  }, [editorHistory, tryFitContainer, lang]);
 
   // ---------------------------------------------------------------------------
   // Issue #24: Paste image as reference layer (Ctrl+Shift+V)
@@ -1465,24 +1468,24 @@ export function MvpEditor() {
 
   const handleReferencePaste = useCallback(async () => {
     if (!navigator.clipboard?.read) {
-      setStatus("クリップボードAPIが利用できません");
+      setStatus(t("status.clipboardNoApi", lang));
       return;
     }
     let items: ClipboardItems;
     try {
       items = await navigator.clipboard.read();
     } catch {
-      setStatus("クリップボードへのアクセスが拒否されました");
+      setStatus(t("status.clipboardDenied", lang));
       return;
     }
     for (const item of items) {
-      const imageType = item.types.find((t) => t.startsWith("image/"));
+      const imageType = item.types.find((tp) => tp.startsWith("image/"));
       if (!imageType) continue;
       let blob: Blob;
       try {
         blob = await item.getType(imageType);
       } catch {
-        setStatus("クリップボード読み込みエラー");
+        setStatus(t("status.clipboardReadError", lang));
         return;
       }
       const url = URL.createObjectURL(blob);
@@ -1490,7 +1493,7 @@ export function MvpEditor() {
       await new Promise<void>((resolve) => {
         img.onload = () => resolve();
         img.onerror = () => {
-          setStatus("参照画像の読み込みに失敗しました");
+          setStatus(t("status.referenceLoadFailed", lang));
           URL.revokeObjectURL(url);
           resolve();
         };
@@ -1507,12 +1510,12 @@ export function MvpEditor() {
       const imageData = ctx.getImageData(0, 0, w, h);
       URL.revokeObjectURL(url);
       setReferenceImage(imageData);
-      setStatus(`参照画像を設定しました: ${w}x${h}`);
-      showToast(`参照画像を設定しました (${w}x${h})`);
+      setStatus(`${t("status.referenceSet", lang)}: ${w}x${h}`);
+      showToast(`${t("status.referenceSet", lang)} (${w}x${h})`);
       return;
     }
-    setStatus("クリップボードに画像がありません");
-  }, [showToast]);
+    setStatus(t("status.clipboardNoImage", lang));
+  }, [showToast, lang]);
 
   // ---------------------------------------------------------------------------
   // Issue #8: Copy composited canvas to clipboard as PNG
@@ -1521,7 +1524,7 @@ export function MvpEditor() {
   const handleCopyToClipboard = useCallback(() => {
     if (!baseState.imageData) return;
     if (!navigator.clipboard?.write) {
-      showToast("クリップボードAPIが利用できません", "error");
+      showToast(t("status.copyNoApi", lang), "error");
       return;
     }
     const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
@@ -1532,13 +1535,13 @@ export function MvpEditor() {
     ctx.putImageData(composited, 0, 0);
     offscreen.toBlob((blob) => {
       if (!blob) {
-        showToast("画像の変換に失敗しました", "error");
+        showToast(t("status.convertFailed", lang), "error");
         return;
       }
       navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(() => {
-        showToast("画像をクリップボードにコピーしました");
+        showToast(t("status.copySuccess", lang));
       }).catch(() => {
-        showToast("クリップボードへのコピーに失敗しました", "error");
+        showToast(t("status.copyFailed", lang), "error");
       });
     }, "image/png");
   }, [baseState.imageData, regions, bakeLayerRef, showToast]);
@@ -1551,8 +1554,8 @@ export function MvpEditor() {
     if (!baseState.imageData) return;
     const { pixels } = makeWhiteTransparent(baseState.imageData, 5);
     if (pixels.length === 0) {
-      setStatus("白ピクセルが見つかりませんでした");
-      showToast("白ピクセルが見つかりませんでした", "error");
+      setStatus(t("status.noWhitePixel", lang));
+      showToast(t("status.noWhitePixel", lang), "error");
       return;
     }
     const newRegion: PaintRegion = {
@@ -1562,8 +1565,8 @@ export function MvpEditor() {
       transparent: true,
     };
     editorHistory.push([...regions, newRegion], bakeLayerRef.current);
-    setStatus(`白を透過: ${pixels.length}px`);
-    showToast(`白を透過しました (${pixels.length}px)`);
+    setStatus(`${t("status.whiteTransparent", lang)}: ${pixels.length}px`);
+    showToast(`${t("status.whiteTransparent", lang)} (${pixels.length}px)`);
   }, [baseState.imageData, regions, editorHistory, showToast]);
 
   // ---------------------------------------------------------------------------
@@ -1612,8 +1615,8 @@ export function MvpEditor() {
       });
 
       setCanvasSizeModalOpen(false);
-      setStatus(`キャンバスサイズ変更: ${newW} × ${newH} px`);
-      showToast(`キャンバスサイズ: ${newW} × ${newH}`);
+      setStatus(`${t("status.canvasResized", lang)}: ${newW} × ${newH} px`);
+      showToast(`${t("status.canvasResized", lang)}: ${newW} × ${newH}`);
     },
     [baseState, regions, editorHistory, showToast]
   );
@@ -1629,8 +1632,8 @@ export function MvpEditor() {
       saveBrandSwatches(next);
       return next;
     });
-    setStatus(`ブランドカラーに保存: ${selectedColor.toUpperCase()}`);
-    showToast(`ブランドカラーに保存: ${selectedColor.toUpperCase()}`);
+    setStatus(`${t("status.brandColorSaved", lang)}: ${selectedColor.toUpperCase()}`);
+    showToast(`${t("status.brandColorSaved", lang)}: ${selectedColor.toUpperCase()}`);
   }, [selectedColor, showToast]);
 
   const handleRemoveBrandSwatch = useCallback((hex: string) => {
@@ -1711,11 +1714,11 @@ export function MvpEditor() {
     a.click();
     URL.revokeObjectURL(url);
     if (usedFallback) {
-      setStatus("SVGをエクスポートしました (大領域のため矩形で近似)");
-      showToast("大領域のため矩形パスで出力しました", "error");
+      setStatus(t("status.svgExportedFallback", lang));
+      showToast(t("status.svgFallbackToast", lang), "error");
     } else {
-      setStatus("SVGをエクスポートしました");
-      showToast("SVGをエクスポートしました");
+      setStatus(t("status.svgExported", lang));
+      showToast(t("status.svgExported", lang));
     }
   }, [baseState, regions, showToast]);
 
@@ -1769,11 +1772,11 @@ export function MvpEditor() {
       });
       downloadChocoFile(project);
       autoSave.clearAutoSave();
-      setStatus("プロジェクトを保存しました (.choco)");
-      showToast("プロジェクトを保存しました (.choco)");
+      setStatus(t("status.projectSaved", lang));
+      showToast(t("status.projectSaved", lang));
     } catch (err) {
-      setStatus("プロジェクトの保存に失敗しました");
-      showToast("プロジェクトの保存に失敗しました", "error");
+      setStatus(t("status.projectSaveFailed", lang));
+      showToast(t("status.projectSaveFailed", lang), "error");
       console.error("[handleSaveProject]", err);
     }
   }, [baseState, regions, selectedColor, tolerance, autoSave, showToast]);
@@ -1794,13 +1797,13 @@ export function MvpEditor() {
       setSelectedColor(state.selectedColor);
       setTolerance(state.tolerance);
       setPalette(extractPaletteColors(state.imageData, 8));
-      setStatus("プロジェクトを読み込みました");
-      showToast("プロジェクトを読み込みました");
+      setStatus(t("status.projectLoaded", lang));
+      showToast(t("status.projectLoaded", lang));
       tryFitContainer(state.naturalWidth, state.naturalHeight);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "不明なエラー";
-      setStatus("読込失敗: " + msg);
-      showToast("プロジェクトの読込に失敗しました", "error");
+      const msg = err instanceof Error ? err.message : "unknown error";
+      setStatus(t("status.projectLoadFailed.prefix", lang) + msg);
+      showToast(t("status.projectSaveFailed", lang), "error");
       console.error("[handleLoadProject]", err);
     }
   }, [editorHistory, showToast, tryFitContainer]);
@@ -1810,7 +1813,7 @@ export function MvpEditor() {
     try {
       const state = await autoSave.loadAutoSave();
       if (!state) {
-        setStatus("前回の編集が見つかりませんでした");
+        setStatus(t("status.regionRestored", lang));
         return;
       }
       // Autosave is image-omitted (lite format): restore regions and settings only.
@@ -1825,11 +1828,11 @@ export function MvpEditor() {
       bakeLayerRef.current = null;
       setSelectedColor(state.selectedColor);
       setTolerance(state.tolerance);
-      setStatus("リージョンと設定を復元しました。元画像を再読み込みしてください");
-      showToast("リージョンと設定を復元しました。元画像を再読み込みしてください", "info");
+      setStatus(t("status.regionRestored", lang));
+      showToast(t("status.regionRestored", lang), "info");
     } catch (err) {
-      setStatus("復元に失敗しました");
-      showToast("復元に失敗しました", "error");
+      setStatus(t("status.restoreFailed", lang));
+      showToast(t("status.restoreFailed", lang), "error");
       console.error("[handleRestoreAutoSave]", err);
     }
   }, [autoSave, editorHistory, showToast]);
@@ -1876,15 +1879,15 @@ export function MvpEditor() {
   // Mapping entries: color regions only, most recent first
   const mappingEntries = regions.filter((r) => !r.transparent).slice().reverse();
 
-  // Mode label (Japanese + English) for status bar
+  // Mode label for status bar
   const modeLabel =
-    mode === "color" ? "色変更 / Color" :
-    mode === "transparent" ? "透過 / Transparent" :
-    mode === "eyedropper" ? "スポイト / Eyedropper" :
-    mode === "brush" ? "ブラシ / Brush" :
-    mode === "text" ? "テキスト / Text" :
-    mode === "shape" ? "シェイプ / Shape" :
-    "一括置換 / Replace-All";
+    mode === "color" ? t("mode.color", lang) :
+    mode === "transparent" ? t("mode.transparent", lang) :
+    mode === "eyedropper" ? t("mode.eyedropper", lang) :
+    mode === "brush" ? t("mode.brush", lang) :
+    mode === "text" ? t("mode.text", lang) :
+    mode === "shape" ? t("mode.shape", lang) :
+    t("mode.replaceAll", lang);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -1924,12 +1927,12 @@ export function MvpEditor() {
           }}
         >
           {/* File open */}
-          <Tooltip label="画像を開く">
+          <Tooltip label={t("label.openImage", lang)}>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               style={iconBtnStyle}
-              aria-label="画像を開く"
+              aria-label={t("label.openImage", lang)}
             >
               <FolderOpen size={16} />
             </button>
@@ -1943,25 +1946,25 @@ export function MvpEditor() {
           />
 
           {/* Issue #5: Project save */}
-          <Tooltip label="プロジェクト保存 (.choco)" shortcut="Ctrl+S">
+          <Tooltip label={t("label.saveProject", lang)} shortcut="Ctrl+S">
             <button
               type="button"
               onClick={handleSaveProject}
               disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-              aria-label="プロジェクト保存"
+              aria-label={t("label.saveProject", lang)}
             >
               <Save size={16} />
             </button>
           </Tooltip>
 
           {/* Issue #5: Project load */}
-          <Tooltip label="プロジェクト読込 (.choco)" shortcut="Ctrl+O">
+          <Tooltip label={t("label.loadProject", lang)} shortcut="Ctrl+O">
             <button
               type="button"
               onClick={handleLoadProject}
               style={iconBtnStyle}
-              aria-label="プロジェクト読込"
+              aria-label={t("label.loadProject", lang)}
             >
               <FolderInput size={16} />
             </button>
@@ -1969,12 +1972,12 @@ export function MvpEditor() {
 
           {/* Issue #7: Recent files dropdown */}
           <div ref={recentMenuRef} style={{ position: "relative" }}>
-            <Tooltip label="最近開いたファイル">
+            <Tooltip label={t("label.recentFiles", lang)}>
               <button
                 type="button"
                 onClick={() => setRecentMenuOpen((v) => !v)}
                 style={recentFiles.length === 0 ? { ...iconBtnStyle, opacity: 0.35 } : iconBtnStyle}
-                aria-label="最近開いたファイル"
+                aria-label={t("label.recentFiles", lang)}
                 aria-haspopup="listbox"
                 aria-expanded={recentMenuOpen}
               >
@@ -1984,7 +1987,7 @@ export function MvpEditor() {
             {recentMenuOpen && recentFiles.length > 0 && (
               <div
                 role="listbox"
-                aria-label="最近開いたファイル一覧"
+                aria-label={t("label.recentFilesList", lang)}
                 style={{
                   position: "absolute",
                   top: "calc(100% + 4px)",
@@ -2068,47 +2071,47 @@ export function MvpEditor() {
           <div style={dividerStyle} />
 
           {/* Undo / Redo / Reset */}
-          <Tooltip label="元に戻す" shortcut="Ctrl+Z">
+          <Tooltip label={t("label.undo", lang)} shortcut="Ctrl+Z">
             <button
               type="button"
-              onClick={() => { editorHistory.undo(); triggerRedraw(); setStatus("元に戻しました"); }}
+              onClick={() => { editorHistory.undo(); triggerRedraw(); setStatus(t("status.undo", lang)); }}
               disabled={!editorHistory.canUndo}
               style={!editorHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-              aria-label="元に戻す"
+              aria-label={t("label.undo", lang)}
             >
               <Undo2 size={16} />
             </button>
           </Tooltip>
-          <Tooltip label="やり直し" shortcut="Ctrl+Y">
+          <Tooltip label={t("label.redo", lang)} shortcut="Ctrl+Y">
             <button
               type="button"
-              onClick={() => { editorHistory.redo(); triggerRedraw(); setStatus("やり直しました"); }}
+              onClick={() => { editorHistory.redo(); triggerRedraw(); setStatus(t("status.redo", lang)); }}
               disabled={!editorHistory.canRedo}
               style={!editorHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-              aria-label="やり直し"
+              aria-label={t("label.redo", lang)}
             >
               <Redo2 size={16} />
             </button>
           </Tooltip>
           <button
             type="button"
-            onClick={() => { editorHistory.reset(); triggerRedraw(); setStatus("全リセット完了"); }}
+            onClick={() => { editorHistory.reset(); triggerRedraw(); setStatus(t("status.reset", lang)); }}
             disabled={regions.length === 0}
             style={regions.length === 0 ? { ...btnDangerStyle, opacity: 0.35, pointerEvents: "none" } : btnDangerStyle}
           >
-            全リセット
+            {t("label.resetAll", lang)}
           </button>
 
           <div style={dividerStyle} />
 
           {/* Zoom fit */}
-          <Tooltip label="フィット表示" shortcut="Ctrl+0">
+          <Tooltip label={t("label.fitView", lang)} shortcut="Ctrl+0">
             <button
               type="button"
               onClick={handleFit}
               disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-              aria-label="フィット表示"
+              aria-label={t("label.fitView", lang)}
             >
               <Maximize2 size={16} />
             </button>
@@ -2117,39 +2120,39 @@ export function MvpEditor() {
           <div style={dividerStyle} />
 
           {/* Export SVG */}
-          <Tooltip label="SVG出力">
+          <Tooltip label={t("label.exportSvg", lang)}>
             <button
               type="button"
               onClick={handleExportSvg}
               disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
-              aria-label="SVG出力"
+              aria-label={t("label.exportSvg", lang)}
             >
               <FileCode2 size={16} />
             </button>
           </Tooltip>
 
           {/* Export image modal trigger */}
-          <Tooltip label="画像出力 (PNG/JPEG/WebP)">
+          <Tooltip label={t("label.exportImage", lang)}>
             <button
               type="button"
               onClick={() => setExportModalOpen(true)}
               disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
-              aria-label="画像出力"
+              aria-label={t("label.exportImage", lang)}
             >
               <Download size={16} />
             </button>
           </Tooltip>
 
           {/* Issue #8: Copy canvas to clipboard */}
-          <Tooltip label="クリップボードにコピー (Ctrl+C)">
+          <Tooltip label={t("label.copyClipboard", lang)}>
             <button
               type="button"
               onClick={handleCopyToClipboard}
               disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
-              aria-label="クリップボードにコピー"
+              aria-label={t("label.copyClipboard", lang)}
             >
               <Copy size={16} />
             </button>
@@ -2158,26 +2161,26 @@ export function MvpEditor() {
           <div style={dividerStyle} />
 
           {/* B-1: Transparent white */}
-          <Tooltip label="白を透過">
+          <Tooltip label={t("label.transparentWhite", lang)}>
             <button
               type="button"
               onClick={handleTransparentWhite}
               disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-              aria-label="白を透過"
+              aria-label={t("label.transparentWhite", lang)}
             >
               <Wand2 size={16} />
             </button>
           </Tooltip>
 
           {/* Issue #9: Canvas size */}
-          <Tooltip label="キャンバスサイズ変更">
+          <Tooltip label={t("label.canvasSize", lang)}>
             <button
               type="button"
               onClick={() => setCanvasSizeModalOpen(true)}
               disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-              aria-label="キャンバスサイズ変更"
+              aria-label={t("label.canvasSize", lang)}
             >
               <Frame size={16} />
             </button>
@@ -2186,12 +2189,12 @@ export function MvpEditor() {
           <div style={dividerStyle} />
 
           {/* Issue #24: Reference layer controls */}
-          <Tooltip label="参照画像を貼る (Ctrl+Shift+V)">
+          <Tooltip label={t("label.referenceLayer", lang)}>
             <button
               type="button"
               onClick={handleReferencePaste}
               style={referenceImage ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
-              aria-label="参照画像を貼る"
+              aria-label={t("label.referenceLayer", lang)}
               aria-pressed={referenceImage ? "true" : "false"}
             >
               <Layers size={16} />
@@ -2199,7 +2202,7 @@ export function MvpEditor() {
           </Tooltip>
           {referenceImage && (
             <>
-              <span style={labelStyle}>参照: {referenceOpacity}%</span>
+              <span style={labelStyle}>{t("prop.referenceOpacity", lang)}: {referenceOpacity}%</span>
               <input
                 type="range"
                 min={0}
@@ -2211,12 +2214,12 @@ export function MvpEditor() {
               />
               <button
                 type="button"
-                onClick={() => { setReferenceImage(null); setStatus("参照画像をクリアしました"); }}
+                onClick={() => { setReferenceImage(null); setStatus(t("status.referenceCleared", lang)); }}
                 style={btnStyle}
-                title="参照画像をクリア"
-                aria-label="参照画像をクリア"
+                title={t("prop.referenceClear", lang)}
+                aria-label={t("prop.referenceClear", lang)}
               >
-                参照クリア
+                {t("prop.referenceClear", lang)}
               </button>
             </>
           )}
@@ -2250,25 +2253,25 @@ export function MvpEditor() {
             value={blendMode}
             onChange={(e) => setBlendMode(e.target.value as "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten")}
             style={selectStyle}
-            title="ブレンドモード"
+            title={t("label.blendMode", lang)}
           >
-            <option value="normal">通常</option>
-            <option value="multiply">乗算</option>
-            <option value="screen">スクリーン</option>
-            <option value="overlay">オーバーレイ</option>
-            <option value="darken">暗く</option>
-            <option value="lighten">明るく</option>
+            <option value="normal">{t("blend.normal", lang)}</option>
+            <option value="multiply">{t("blend.multiply", lang)}</option>
+            <option value="screen">{t("blend.screen", lang)}</option>
+            <option value="overlay">{t("blend.overlay", lang)}</option>
+            <option value="darken">{t("blend.darken", lang)}</option>
+            <option value="lighten">{t("blend.lighten", lang)}</option>
           </select>
 
           <div style={dividerStyle} />
 
           {/* S8: Grid + Snap controls */}
-          <Tooltip label="グリッド表示">
+          <Tooltip label={t("label.grid", lang)}>
             <button
               type="button"
               onClick={() => setGridEnabled((v) => !v)}
               style={gridEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
-              aria-label="グリッド表示"
+              aria-label={t("label.grid", lang)}
               aria-pressed={gridEnabled}
             >
               <Grid3x3 size={16} />
@@ -2276,7 +2279,7 @@ export function MvpEditor() {
           </Tooltip>
           {gridEnabled && (
             <>
-              <span style={labelStyle}>間隔: {gridSize}</span>
+              <span style={labelStyle}>{t("prop.gridSize", lang)}: {gridSize}</span>
               <input
                 type="range"
                 min={5}
@@ -2289,12 +2292,12 @@ export function MvpEditor() {
               />
             </>
           )}
-          <Tooltip label="スナップ">
+          <Tooltip label={t("label.snap", lang)}>
             <button
               type="button"
               onClick={() => setSnapEnabled((v) => !v)}
               style={snapEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
-              aria-label="スナップ"
+              aria-label={t("label.snap", lang)}
               aria-pressed={snapEnabled}
             >
               <Magnet size={16} />
@@ -2317,9 +2320,22 @@ export function MvpEditor() {
                   ? { ...btnStyle, background: T.color.bgElevated, border: `1px solid ${T.color.accent}` }
                   : btnStyle
             }
-            title="押している間は編集前の元画像を表示"
+            title={t("label.compare", lang)}
           >
-            比較
+            {t("label.compare", lang)}
+          </button>
+
+          <div style={dividerStyle} />
+
+          {/* Language toggle */}
+          <button
+            type="button"
+            onClick={() => setLang(lang === "ja" ? "en" : "ja")}
+            style={btnStyle}
+            title={t("lang.toggle", lang)}
+            aria-label={t("lang.toggle", lang)}
+          >
+            {t("lang.toggle", lang)}
           </button>
         </div>
 
@@ -2389,7 +2405,7 @@ export function MvpEditor() {
             {/* Brush size — brush mode only */}
             {mode === "brush" && (
               <>
-                <span style={labelStyle}>太さ: {brushSize}</span>
+                <span style={labelStyle}>{t("prop.brushSize", lang)}: {brushSize}</span>
                 <input
                   type="range"
                   min={1}
@@ -2405,7 +2421,7 @@ export function MvpEditor() {
             {/* Tolerance — color / replace-all / transparent modes */}
             {(mode === "color" || mode === "replace-all" || mode === "transparent") && (
               <>
-                <span style={labelStyle}>許容値: {tolerance}</span>
+                <span style={labelStyle}>{t("prop.tolerance", lang)}: {tolerance}</span>
                 <input
                   type="range"
                   min={0}
@@ -2421,7 +2437,7 @@ export function MvpEditor() {
             {/* Hole-fill — color / replace-all / transparent modes */}
             {(mode === "color" || mode === "replace-all" || mode === "transparent") && (
               <>
-                <span style={labelStyle}>穴埋め: {closeRadius}</span>
+                <span style={labelStyle}>{t("prop.holeFill", lang)}: {closeRadius}</span>
                 <input
                   type="range"
                   min={0}
@@ -2438,7 +2454,7 @@ export function MvpEditor() {
             {/* Feather radius — transparent mode */}
             {mode === "transparent" && (
               <>
-                <span style={labelStyle}>フェザー: {featherRadius}</span>
+                <span style={labelStyle}>{t("prop.feather", lang)}: {featherRadius}</span>
                 <input
                   type="range"
                   min={0}
@@ -2454,40 +2470,40 @@ export function MvpEditor() {
 
             {/* Smooth replace — replace-all mode only */}
             {mode === "replace-all" && (
-              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="境界を滑らかにブレンドして置換">
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title={t("prop.smoothReplace", lang)}>
                 <input
                   type="checkbox"
                   checked={smoothReplace}
                   onChange={(e) => setSmoothReplace(e.target.checked)}
                   style={{ cursor: "pointer" }}
                 />
-                滑らかに置換
+                {t("prop.smoothReplace", lang)}
               </label>
             )}
 
             {/* Antialias boundary — color / transparent modes */}
             {(mode === "color" || mode === "transparent") && (
-              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title={t("prop.antialiasEdge", lang)}>
                 <input
                   type="checkbox"
                   checked={includeAntialias}
                   onChange={(e) => setIncludeAntialias(e.target.checked)}
                   style={{ cursor: "pointer" }}
                 />
-                境界含める
+                {t("prop.antialiasEdge", lang)}
               </label>
             )}
 
             {/* 8-neighbor connectivity — color / transparent modes */}
             {(mode === "color" || mode === "transparent") && (
-              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title={t("prop.8neighbor", lang)}>
                 <input
                   type="checkbox"
                   checked={connectivity === 8}
                   onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
                   style={{ cursor: "pointer" }}
                 />
-                8近傍
+                {t("prop.8neighbor", lang)}
               </label>
             )}
 
@@ -2497,9 +2513,9 @@ export function MvpEditor() {
                 type="button"
                 onClick={handleSaveBrandSwatch}
                 style={btnStyle}
-                title="現在の選択色をブランドカラーとして保存 (最大8色)"
+                title={t("prop.saveColor", lang)}
               >
-                色を保存
+                {t("prop.saveColor", lang)}
               </button>
             )}
 
@@ -2519,7 +2535,7 @@ export function MvpEditor() {
                   <option value="cursive">Cursive</option>
                   <option value="fantasy">Fantasy</option>
                 </select>
-                <span style={labelStyle}>サイズ: {textFontSize}</span>
+                <span style={labelStyle}>{t("prop.fontSize", lang)}: {textFontSize}</span>
                 <input
                   type="range"
                   min={10}
@@ -2548,7 +2564,7 @@ export function MvpEditor() {
                 </select>
                 {shapeKind === "polygon" && (
                   <>
-                    <span style={labelStyle}>辺数: {polyVertices}</span>
+                    <span style={labelStyle}>{t("prop.polygonSides", lang)}: {polyVertices}</span>
                     <input
                       type="range"
                       min={3}
@@ -2574,7 +2590,7 @@ export function MvpEditor() {
                     onChange={(e) => setUseFill(e.target.checked)}
                     style={{ cursor: "pointer" }}
                   />
-                  塗り
+                  {t("prop.fill", lang)}
                 </label>
                 <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                   <input
@@ -2583,7 +2599,7 @@ export function MvpEditor() {
                     onChange={(e) => setUseStroke(e.target.checked)}
                     style={{ cursor: "pointer" }}
                   />
-                  線
+                  {t("prop.stroke", lang)}
                 </label>
                 {useStroke && (
                   <>
@@ -2603,7 +2619,7 @@ export function MvpEditor() {
                       }}
                       title="線色"
                     />
-                    <span style={labelStyle}>線幅: {strokeWidth}</span>
+                    <span style={labelStyle}>{t("prop.strokeWidth", lang)}: {strokeWidth}</span>
                     <input
                       type="range"
                       min={0}
@@ -2756,84 +2772,84 @@ export function MvpEditor() {
 
         {/* Left vertical toolbar */}
         <div style={leftToolbarStyle}>
-          <Tooltip label="色変更">
+          <Tooltip label={t("tool.color", lang)}>
             <button
               type="button"
               aria-pressed={mode === "color" ? "true" : "false"}
               onClick={() => setMode("color")}
               style={mode === "color" ? leftToolBtnActiveStyle : leftToolBtnStyle}
-              aria-label="色変更"
+              aria-label={t("tool.color", lang)}
             >
               <PaintBucket size={18} />
             </button>
           </Tooltip>
-          <Tooltip label="透過">
+          <Tooltip label={t("tool.transparent", lang)}>
             <button
               type="button"
               aria-pressed={mode === "transparent" ? "true" : "false"}
               onClick={() => setMode("transparent")}
               style={mode === "transparent" ? leftToolBtnActiveStyle : leftToolBtnStyle}
-              aria-label="透過"
+              aria-label={t("tool.transparent", lang)}
             >
               <Eraser size={18} />
             </button>
           </Tooltip>
-          <Tooltip label="スポイト (I)">
+          <Tooltip label={`${t("tool.eyedropper", lang)} (I)`}>
             <button
               type="button"
               aria-pressed={mode === "eyedropper" ? "true" : "false"}
               onClick={() => setMode("eyedropper")}
               style={mode === "eyedropper" ? leftToolBtnActiveStyle : leftToolBtnStyle}
-              aria-label="スポイト"
+              aria-label={t("tool.eyedropper", lang)}
             >
               <Pipette size={18} />
             </button>
           </Tooltip>
-          <Tooltip label="同色一括 (R)">
+          <Tooltip label={`${t("tool.replaceAll", lang)} (R)`}>
             <button
               type="button"
               aria-pressed={mode === "replace-all" ? "true" : "false"}
               onClick={() => setMode("replace-all")}
               style={mode === "replace-all" ? leftToolBtnActiveStyle : leftToolBtnStyle}
-              aria-label="同色一括"
+              aria-label={t("tool.replaceAll", lang)}
             >
               <Replace size={18} />
             </button>
           </Tooltip>
-          <Tooltip label="ブラシ (B)">
+          <Tooltip label={`${t("tool.brush", lang)} (B)`}>
             <button
               type="button"
               aria-pressed={mode === "brush" ? "true" : "false"}
               onClick={() => setMode("brush")}
               style={mode === "brush" ? leftToolBtnActiveStyle : leftToolBtnStyle}
-              aria-label="ブラシ"
+              aria-label={t("tool.brush", lang)}
             >
               <Paintbrush size={18} />
             </button>
           </Tooltip>
-          <Tooltip label="テキスト (T)">
+          <Tooltip label={`${t("tool.text", lang)} (T)`}>
             <button
               type="button"
               aria-pressed={mode === "text" ? "true" : "false"}
               onClick={() => setMode("text")}
               style={mode === "text" ? leftToolBtnActiveStyle : leftToolBtnStyle}
-              aria-label="テキスト"
+              aria-label={t("tool.text", lang)}
             >
               <Type size={18} />
             </button>
           </Tooltip>
-          <Tooltip label="シェイプ (U)">
+          <Tooltip label={`${t("tool.shape", lang)} (U)`}>
             <button
               type="button"
               aria-pressed={mode === "shape" ? "true" : "false"}
               onClick={() => setMode("shape")}
               style={mode === "shape" ? leftToolBtnActiveStyle : leftToolBtnStyle}
-              aria-label="シェイプ"
+              aria-label={t("tool.shape", lang)}
             >
               <Square size={18} />
             </button>
           </Tooltip>
-          <Tooltip label="ヘルプ (右クリックでも開けます)">
+          <Tooltip label={t("label.help", lang)}>
             <button
               type="button"
               onClick={() => setShortcutPos({
@@ -2899,15 +2915,15 @@ export function MvpEditor() {
               </svg>
               <div>
                 <p style={dropZoneTitleStyle}>
-                  画像をドロップ
+                  {t("drop.title", lang)}
                 </p>
                 <p style={dropZoneSubStyle}>
-                  PNG / JPG / SVG / WebP
+                  {t("drop.formats", lang)}
                 </p>
               </div>
               <div style={dropZoneDividerStyle}>
                 <span style={dropZoneDividerLineStyle} />
-                または
+                {t("drop.or", lang)}
                 <span style={dropZoneDividerLineStyle} />
               </div>
               <button
@@ -2915,7 +2931,7 @@ export function MvpEditor() {
                 onClick={() => fileInputRef.current?.click()}
                 style={dropZoneButtonStyle}
               >
-                ファイルを選択
+                {t("drop.selectFile", lang)}
               </button>
             </div>
           ) : (
@@ -3012,14 +3028,14 @@ export function MvpEditor() {
                 onClick={() => setShowPalette((v) => !v)}
                 style={showPalette ? panelTabBtnActiveStyle : panelTabBtnStyle}
               >
-                パレット
+                {t("panel.palette", lang)}
               </button>
               <button
                 type="button"
                 onClick={() => setShowMapping((v) => !v)}
                 style={showMapping ? panelTabBtnActiveStyle : panelTabBtnStyle}
               >
-                ログ
+                {t("panel.log", lang)}
               </button>
             </div>
 
@@ -3027,7 +3043,7 @@ export function MvpEditor() {
               {/* Main palette colors */}
               {showPalette && palette.length > 0 && (
                 <div style={rightPanelSectionStyle}>
-                  <div style={rightPanelSectionHeaderStyle}>主要色</div>
+                  <div style={rightPanelSectionHeaderStyle}>{t("panel.mainColors", lang)}</div>
                   <div style={swatchGridStyle}>
                     {palette.map((hex) => (
                       <button
@@ -3059,7 +3075,7 @@ export function MvpEditor() {
               {/* Recent colors */}
               {showPalette && recentColors.length > 0 && (
                 <div style={rightPanelSectionStyle}>
-                  <div style={rightPanelSectionHeaderStyle}>最近</div>
+                  <div style={rightPanelSectionHeaderStyle}>{t("panel.recentColors", lang)}</div>
                   <div style={swatchGridStyle}>
                     {recentColors.map((hex, i) => (
                       <button
@@ -3092,7 +3108,7 @@ export function MvpEditor() {
               {/* Brand color swatches */}
               {showPalette && brandSwatches.length > 0 && (
                 <div style={rightPanelSectionStyle}>
-                  <div style={rightPanelSectionHeaderStyle}>ブランド</div>
+                  <div style={rightPanelSectionHeaderStyle}>{t("panel.brandColors", lang)}</div>
                   <div style={swatchGridStyle}>
                     {brandSwatches.map((hex) => (
                       <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
@@ -3151,18 +3167,18 @@ export function MvpEditor() {
               {showPalette && (
                 <div style={rightPanelSectionStyle}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: T.space.xs }}>
-                    <div style={rightPanelSectionHeaderStyle}>パレットセット</div>
+                    <div style={rightPanelSectionHeaderStyle}>{t("panel.paletteSets", lang)}</div>
                     <button
                       type="button"
                       onClick={handleAddPaletteSet}
                       style={{ ...btnStyle, padding: "1px 6px", fontSize: T.font.badge }}
-                      title="新しいパレットを追加"
+                      title={t("panel.newPalette", lang)}
                     >
-                      + 新しいパレット
+                      {t("panel.newPalette", lang)}
                     </button>
                   </div>
                   {paletteSets.length === 0 && (
-                    <div style={{ color: T.color.textDim, fontSize: T.font.badge }}>パレットがありません</div>
+                    <div style={{ color: T.color.textDim, fontSize: T.font.badge }}>{t("panel.noPalette", lang)}</div>
                   )}
                   {paletteSets.map((ps) => (
                     <div key={ps.id} style={{ marginBottom: T.space.xs }}>
@@ -3255,9 +3271,9 @@ export function MvpEditor() {
                             type="button"
                             onClick={() => handleAddColorToPaletteSet(ps.id)}
                             style={{ ...btnStyle, padding: "1px 6px", fontSize: T.font.badge, width: "100%" }}
-                            title={`現在の色 ${selectedColor.toUpperCase()} をパレットに追加`}
+                            title={t("panel.addCurrentColor", lang)}
                           >
-                            + 現在の色を追加
+                            {t("panel.addCurrentColor", lang)}
                           </button>
                         </div>
                       )}
@@ -3270,7 +3286,7 @@ export function MvpEditor() {
               {showMapping && mappingEntries.length > 0 && (
                 <div style={rightPanelSectionStyle}>
                   <div style={rightPanelSectionHeaderStyle}>
-                    編集ログ ({mappingEntries.length})
+                    {t("panel.editLog", lang)} ({mappingEntries.length})
                   </div>
                   {mappingEntries.map((region) => (
                     <div key={region.id} style={sidebarRowStyle}>
@@ -3343,10 +3359,10 @@ export function MvpEditor() {
         <div style={restoreModalOverlayStyle}>
           <div style={restoreModalBoxStyle}>
             <p style={restoreModalTextStyle}>
-              前回の編集データが見つかりました。復元しますか？
+              {t("restore.message", lang)}
             </p>
             <p style={{ ...restoreModalTextStyle, fontSize: 11, color: "#aaa", margin: "0 0 16px" }}>
-              ※ リージョンと設定のみ復元されます。元画像は復元後に再読み込みしてください。
+              {t("restore.note", lang)}
             </p>
             <div style={restoreModalActionsStyle}>
               <button
@@ -3357,14 +3373,14 @@ export function MvpEditor() {
                 }}
                 style={btnSubtleStyle}
               >
-                破棄
+                {t("restore.discard", lang)}
               </button>
               <button
                 type="button"
                 onClick={handleRestoreAutoSave}
                 style={btnAccentStyle}
               >
-                復元する
+                {t("restore.restore", lang)}
               </button>
             </div>
           </div>
