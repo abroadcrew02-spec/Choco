@@ -43,13 +43,18 @@ export function useZoomPan(spacePressed: boolean): UseZoomPanReturn {
   const onWheel = useCallback(
     (e: React.WheelEvent<HTMLElement>) => {
       e.preventDefault();
+      // Capture rect and mouse position before entering the setScale updater.
+      // React SyntheticEvents are nullified after the event handler returns, so
+      // accessing e.currentTarget inside an async/batched state updater would
+      // throw a TypeError and cause a white-out.
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
       const delta = -e.deltaY * ZOOM_STEP_FACTOR;
+
       setScale((prev) => {
         const next = clampScale(prev + delta * prev);
         const ratio = next / prev;
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
         setOffsetX((ox) => mouseX - (mouseX - ox) * ratio);
         setOffsetY((oy) => mouseY - (mouseY - oy) * ratio);
         return next;

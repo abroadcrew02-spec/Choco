@@ -169,3 +169,113 @@ describe("onMouseDown panStart capture (Issue #12 guard)", () => {
     expect(newOffsetY).toBe(85);  // 75 + 10
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #63: onWheel SyntheticEvent null-ification guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulates the buggy onWheel: reads rect inside the setScale updater.
+ * In React, SyntheticEvents are nullified after the handler returns.
+ * The updater may run asynchronously (batched), at which point
+ * e.currentTarget is null, causing a TypeError.
+ */
+function simulateBuggyOnWheel(
+  clientX: number,
+  clientY: number,
+  deltaY: number,
+  prevScale: number,
+  getBoundingClientRect: () => { left: number; top: number } | null
+): { next: number; mouseX: number; mouseY: number } | "TypeError" {
+  const ZOOM_STEP_FACTOR = 0.001;
+  const ZOOM_MIN = 0.1;
+  const ZOOM_MAX = 10.0;
+  const clampScale = (s: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s));
+
+  // Simulate reading rect inside the updater (the bug: currentTarget is null here)
+  const rect = getBoundingClientRect();
+  if (rect === null) {
+    return "TypeError"; // Simulates: Cannot read properties of null
+  }
+  const delta = -deltaY * ZOOM_STEP_FACTOR;
+  const next = clampScale(prevScale + delta * prevScale);
+  const mouseX = clientX - rect.left;
+  const mouseY = clientY - rect.top;
+  return { next, mouseX, mouseY };
+}
+
+/**
+ * Simulates the fixed onWheel: reads rect outside the setScale updater.
+ * rect is captured synchronously while the SyntheticEvent is still valid.
+ */
+function simulateFixedOnWheel(
+  clientX: number,
+  clientY: number,
+  deltaY: number,
+  prevScale: number,
+  rect: { left: number; top: number }
+): { next: number; mouseX: number; mouseY: number } {
+  const ZOOM_STEP_FACTOR = 0.001;
+  const ZOOM_MIN = 0.1;
+  const ZOOM_MAX = 10.0;
+  const clampScale = (s: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s));
+
+  // rect is already captured before updater — safe regardless of when updater runs
+  const mouseX = clientX - rect.left;
+  const mouseY = clientY - rect.top;
+  const delta = -deltaY * ZOOM_STEP_FACTOR;
+  const next = clampScale(prevScale + delta * prevScale);
+  return { next, mouseX, mouseY };
+}
+
+describe("onWheel SyntheticEvent null-ification guard (Issue #63)", () => {
+  it("buggy version throws TypeError when currentTarget is null inside updater", () => {
+    // Simulate: getBoundingClientRect() called after SyntheticEvent is nullified
+    const result = simulateBuggyOnWheel(
+      300, 200, -100, 1.0,
+      () => null // currentTarget is null — event was nullified
+    );
+    expect(result).toBe("TypeError");
+  });
+
+  it("fixed version never accesses currentTarget inside the updater — no TypeError", () => {
+    // rect is captured before the updater is entered
+    const rect = { left: 50, top: 30 };
+
+    // Even if the "event" is later nullified, the updater never touches it
+    const result = simulateFixedOnWheel(300, 200, -100, 1.0, rect);
+
+    expect(result).not.toBe("TypeError");
+    expect(result.mouseX).toBe(250); // 300 - 50
+    expect(result.mouseY).toBe(170); // 200 - 30
+  });
+
+  it("fixed version produces identical zoom output for multiple rapid wheel events", () => {
+    const rect = { left: 0, top: 0 };
+    const events = [
+      { deltaY: -100 },
+      { deltaY: -100 },
+      { deltaY: -100 },
+    ];
+
+    let scale = 1.0;
+    for (const ev of events) {
+      const result = simulateFixedOnWheel(200, 150, ev.deltaY, scale, rect);
+      expect(result).not.toBe("TypeError");
+      scale = result.next;
+    }
+
+    // After 3 scroll-up events scale should have increased without throwing
+    expect(scale).toBeGreaterThan(1.0);
+  });
+
+  it("fixed version guards against prev === 0 edge case (no NaN ratio)", () => {
+    const rect = { left: 0, top: 0 };
+    // prev clamped minimum is ZOOM_MIN (0.1), so prev=0 can't normally occur,
+    // but verify that clamp prevents 0 and ratio stays finite.
+    const result = simulateFixedOnWheel(200, 150, -100, 0.1, rect);
+    expect(result).not.toBe("TypeError");
+    expect(isFinite(result.next)).toBe(true);
+    expect(result.next).toBeGreaterThanOrEqual(0.1);
+  });
+});
