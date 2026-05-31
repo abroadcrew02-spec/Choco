@@ -2185,3 +2185,113 @@ describe("formatColor", () => {
     expect(formatColor("#000000", "CMYK")).toBe("0%, 0%, 0%, 100%");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #38: getCanvasCoords — zoom/pan transform correctness verification
+//
+// getCanvasCoords uses getBoundingClientRect() which returns the post-transform
+// viewport rect. This means CSS zoom/pan (translate/scale) is already factored
+// in by the browser, and (e.clientX - rect.left) * scaleX is always correct
+// regardless of how the canvas element is visually transformed.
+//
+// These tests mirror the pure coordinate math from MvpEditor.tsx to verify
+// correctness under different zoom levels, pan offsets, and edge cases
+// (viewport-clipped rects, boundary pixels, sub-pixel positions).
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors getCanvasCoords logic from MvpEditor.tsx.
+ *
+ * rect simulates getBoundingClientRect() — which already incorporates any
+ * CSS transform (zoom / pan / translate / scale) applied to the canvas.
+ * clientX/clientY are raw viewport mouse coordinates.
+ */
+function getCanvasCoordsLogic(
+  clientX: number,
+  clientY: number,
+  rect: { left: number; top: number; width: number; height: number },
+  naturalWidth: number,
+  naturalHeight: number
+): { x: number; y: number } | null {
+  const scaleX = naturalWidth / rect.width;
+  const scaleY = naturalHeight / rect.height;
+  const x = Math.floor((clientX - rect.left) * scaleX);
+  const y = Math.floor((clientY - rect.top) * scaleY);
+  if (x < 0 || x >= naturalWidth || y < 0 || y >= naturalHeight) return null;
+  return { x, y };
+}
+
+describe("getCanvasCoords logic (Issue #38: zoom/pan correctness)", () => {
+  it("1x zoom: click at center maps to correct image pixel", () => {
+    // Canvas displayed at natural size (400x300), positioned at (10, 20) in viewport
+    const rect = { left: 10, top: 20, width: 400, height: 300 };
+    const result = getCanvasCoordsLogic(210, 170, rect, 400, 300);
+    // (210-10)*1 = 200, (170-20)*1 = 150
+    expect(result).toEqual({ x: 200, y: 150 });
+  });
+
+  it("2x zoom: canvas rendered at 2x size, image coords are halved correctly", () => {
+    // Natural size 400x300, but getBoundingClientRect returns 800x600 (2x CSS zoom)
+    // Because getBoundingClientRect accounts for transform, scaleX = 400/800 = 0.5
+    const rect = { left: 0, top: 0, width: 800, height: 600 };
+    const result = getCanvasCoordsLogic(400, 300, rect, 400, 300);
+    // (400-0)*0.5 = 200, (300-0)*0.5 = 150
+    expect(result).toEqual({ x: 200, y: 150 });
+  });
+
+  it("0.5x zoom: canvas rendered at half size, image coords are doubled correctly", () => {
+    // Natural size 400x300, getBoundingClientRect returns 200x150 (0.5x zoom)
+    // scaleX = 400/200 = 2
+    const rect = { left: 50, top: 50, width: 200, height: 150 };
+    const result = getCanvasCoordsLogic(150, 125, rect, 400, 300);
+    // (150-50)*2 = 200, (125-50)*2 = 150
+    expect(result).toEqual({ x: 200, y: 150 });
+  });
+
+  it("pan offset: canvas translated in viewport, coords still correct", () => {
+    // Canvas panned to left=300, top=200 in viewport, displayed at natural size
+    const rect = { left: 300, top: 200, width: 400, height: 300 };
+    const result = getCanvasCoordsLogic(350, 250, rect, 400, 300);
+    // (350-300)*1 = 50, (250-200)*1 = 50
+    expect(result).toEqual({ x: 50, y: 50 });
+  });
+
+  it("viewport-clipped rect (negative left): coords still correct when canvas partially off-screen", () => {
+    // Canvas partially scrolled off left edge: left = -100 (clipped)
+    // getBoundingClientRect can return negative left — this is valid
+    const rect = { left: -100, top: 0, width: 400, height: 300 };
+    const result = getCanvasCoordsLogic(50, 100, rect, 400, 300);
+    // (50 - (-100))*1 = 150, (100-0)*1 = 100
+    expect(result).toEqual({ x: 150, y: 100 });
+  });
+
+  it("returns null for click outside image bounds (right edge overflow)", () => {
+    const rect = { left: 0, top: 0, width: 100, height: 100 };
+    // clientX=105 → x = floor(105*1) = 105 >= naturalWidth=100 → null
+    const result = getCanvasCoordsLogic(105, 50, rect, 100, 100);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for click outside image bounds (negative coords)", () => {
+    const rect = { left: 50, top: 50, width: 100, height: 100 };
+    // clientX=40 → x = floor((40-50)*1) = -10 < 0 → null
+    const result = getCanvasCoordsLogic(40, 60, rect, 100, 100);
+    expect(result).toBeNull();
+  });
+
+  it("boundary pixel: last valid pixel (naturalWidth-1) is included", () => {
+    const rect = { left: 0, top: 0, width: 100, height: 100 };
+    // clientX=99 → x = floor(99*1) = 99 = naturalWidth-1 → valid
+    const result = getCanvasCoordsLogic(99, 50, rect, 100, 100);
+    expect(result).not.toBeNull();
+    expect(result!.x).toBe(99);
+  });
+
+  it("sub-pixel position: Math.floor truncates toward image pixel origin", () => {
+    // Natural 200x200, displayed at 100x100 → scaleX=2
+    const rect = { left: 0, top: 0, width: 100, height: 100 };
+    // clientX=10.7 → (10.7-0)*2=21.4 → floor=21
+    const result = getCanvasCoordsLogic(10.7, 10.7, rect, 200, 200);
+    expect(result).toEqual({ x: 21, y: 21 });
+  });
+});
