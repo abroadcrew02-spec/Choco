@@ -1833,6 +1833,44 @@ describe("Issue #15: exportImageData uses toBlob + objectURL (no base64 hold)", 
     vi.restoreAllMocks();
   });
 
+  // ---------------------------------------------------------------------------
+  // Issue #16: comparing mode — compositeRegions(base, [], bakeLayer) behaviour
+  // ---------------------------------------------------------------------------
+
+  it("Issue #16: comparing mode — bakeLayer strokes survive (regions excluded only)", () => {
+    // Simulate: base=black, bakeLayer has a red stroke on (0,0), region paints (0,0) blue.
+    // In comparing mode the result should show bakeLayer red, NOT the region blue, NOT raw black.
+    const base = makeSolidImageData(2, 2, 0, 0, 0);
+
+    // bakeLayer: pixel (0,0) fully opaque red
+    const bakeData = new Uint8ClampedArray(2 * 2 * 4);
+    bakeData[0] = 255; bakeData[1] = 0; bakeData[2] = 0; bakeData[3] = 255;
+    const bake = new ImageData(bakeData, 2, 2);
+
+    // In comparing mode: compositeRegions(base, [], bakeLayer)
+    const comparingResult = compositeRegions(base, [], bake);
+
+    // Pixel (0,0): bakeLayer red should be visible
+    expect(comparingResult.data[0]).toBe(255); // R from bake
+    expect(comparingResult.data[1]).toBe(0);   // G
+    expect(comparingResult.data[2]).toBe(0);   // B
+    expect(comparingResult.data[3]).toBe(255); // A
+
+    // Other pixels: base black
+    expect(comparingResult.data[4]).toBe(0);
+  });
+
+  it("Issue #16: comparing mode with null bakeLayer returns raw base (no regions)", () => {
+    // bakeLayer is null (no brush strokes yet): comparing shows raw base image.
+    const base = makeSolidImageData(2, 2, 100, 150, 200);
+    const comparingResult = compositeRegions(base, [], null);
+
+    expect(comparingResult.data[0]).toBe(100);
+    expect(comparingResult.data[1]).toBe(150);
+    expect(comparingResult.data[2]).toBe(200);
+    expect(comparingResult.data[3]).toBe(255);
+  });
+
   it("buildSvg embeds PNG as base64 data URL inside <image href> (SVG internal use — required)", () => {
     const imageData = makeSolidImageData(2, 2, 0, 128, 255);
 

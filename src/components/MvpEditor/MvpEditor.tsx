@@ -1603,8 +1603,9 @@ export function MvpEditor() {
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (comparing) {
-      // B-3: before/after comparison — show raw base image without regions
-      ctx.putImageData(baseState.imageData, 0, 0);
+      // B-3: before/after comparison — show base + bakeLayer without regions applied
+      const preRegions = compositeRegions(baseState.imageData, [], bakeLayerRef.current);
+      ctx.putImageData(preRegions, 0, 0);
     } else {
       const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
       ctx.putImageData(composited, 0, 0);
