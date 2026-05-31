@@ -2864,796 +2864,815 @@ export function MvpEditor() {
         fontFamily: T.font.family,
       }}
     >
-      {/* ===== Property Bar (top, full-width) ===== */}
+      {/* ===== Property Bar (top, full-width) — 2-row layout ===== */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: T.space.xs,
-          padding: `5px ${T.space.sm}px`,
+          flexDirection: "column",
           background: T.color.bgPanel,
           borderBottom: `1px solid ${T.color.border}`,
-          flexWrap: "wrap",
           flexShrink: 0,
         }}
       >
-        {/* File open */}
-        <Tooltip label="画像を開く">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            style={iconBtnStyle}
-            aria-label="画像を開く"
-          >
-            <FolderOpen size={16} />
-          </button>
-        </Tooltip>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
-
-        {/* Issue #5: Project save */}
-        <Tooltip label="プロジェクト保存 (.choco)" shortcut="Ctrl+S">
-          <button
-            type="button"
-            onClick={handleSaveProject}
-            disabled={!baseState.imageData}
-            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-            aria-label="プロジェクト保存"
-          >
-            <Save size={16} />
-          </button>
-        </Tooltip>
-
-        {/* Issue #5: Project load */}
-        <Tooltip label="プロジェクト読込 (.choco)" shortcut="Ctrl+O">
-          <button
-            type="button"
-            onClick={handleLoadProject}
-            style={iconBtnStyle}
-            aria-label="プロジェクト読込"
-          >
-            <FolderInput size={16} />
-          </button>
-        </Tooltip>
-
-        {/* Issue #7: Recent files dropdown */}
-        <div ref={recentMenuRef} style={{ position: "relative" }}>
-          <Tooltip label="最近開いたファイル">
+        {/* --- Upper row: always-visible common controls --- */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: T.space.xs,
+            padding: `5px ${T.space.sm}px`,
+            flexWrap: "wrap",
+            borderBottom: `1px solid ${T.color.border}`,
+          }}
+        >
+          {/* File open */}
+          <Tooltip label="画像を開く">
             <button
               type="button"
-              onClick={() => setRecentMenuOpen((v) => !v)}
-              style={recentFiles.length === 0 ? { ...iconBtnStyle, opacity: 0.35 } : iconBtnStyle}
-              aria-label="最近開いたファイル"
-              aria-haspopup="listbox"
-              aria-expanded={recentMenuOpen}
+              onClick={() => fileInputRef.current?.click()}
+              style={iconBtnStyle}
+              aria-label="画像を開く"
             >
-              <Clock size={16} />
+              <FolderOpen size={16} />
             </button>
           </Tooltip>
-          {recentMenuOpen && recentFiles.length > 0 && (
-            <div
-              role="listbox"
-              aria-label="最近開いたファイル一覧"
-              style={{
-                position: "absolute",
-                top: "calc(100% + 4px)",
-                left: 0,
-                zIndex: 200,
-                background: T.color.bgElevated,
-                border: `1px solid ${T.color.borderMid}`,
-                borderRadius: T.radius.md,
-                boxShadow: T.shadow.elevated,
-                minWidth: 220,
-                padding: "4px 0",
-              }}
-            >
-              {recentFiles.map((entry) => (
-                <button
-                  key={entry.name + entry.lastAccessedAt}
-                  type="button"
-                  role="option"
-                  aria-selected={false}
-                  onClick={() => {
-                    setRecentMenuOpen(false);
-                    fileInputRef.current?.click();
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: T.space.sm,
-                    width: "100%",
-                    padding: `${T.space.xs}px ${T.space.sm}px`,
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    color: T.color.textPrimary,
-                    fontFamily: T.font.family,
-                    fontSize: T.font.body,
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background = T.color.bgPanel;
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                  }}
-                >
-                  <img
-                    src={entry.thumbnailDataUrl}
-                    alt=""
-                    aria-hidden="true"
-                    style={{
-                      width: 32,
-                      height: 32,
-                      objectFit: "contain",
-                      borderRadius: T.radius.sm,
-                      border: `1px solid ${T.color.border}`,
-                      background: T.color.checkerA,
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div style={{ overflow: "hidden", flex: 1 }}>
-                    <div
-                      style={{
-                        fontSize: T.font.body,
-                        color: T.color.textPrimary,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {entry.name}
-                    </div>
-                    <div style={{ fontSize: T.font.badge, color: T.color.textMuted }}>
-                      {formatRelativeTime(entry.lastAccessedAt)}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
 
-        <div style={dividerStyle} />
-
-        {/* Undo / Redo / Reset */}
-        <Tooltip label="元に戻す" shortcut="Ctrl+Z">
-          <button
-            type="button"
-            onClick={() => { editorHistory.undo(); triggerRedraw(); setStatus("元に戻しました"); }}
-            disabled={!editorHistory.canUndo}
-            style={!editorHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-            aria-label="元に戻す"
-          >
-            <Undo2 size={16} />
-          </button>
-        </Tooltip>
-        <Tooltip label="やり直し" shortcut="Ctrl+Y">
-          <button
-            type="button"
-            onClick={() => { editorHistory.redo(); triggerRedraw(); setStatus("やり直しました"); }}
-            disabled={!editorHistory.canRedo}
-            style={!editorHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-            aria-label="やり直し"
-          >
-            <Redo2 size={16} />
-          </button>
-        </Tooltip>
-        <button
-          type="button"
-          onClick={() => { editorHistory.reset(); triggerRedraw(); setStatus("全リセット完了"); }}
-          disabled={regions.length === 0}
-          style={regions.length === 0 ? { ...btnDangerStyle, opacity: 0.35, pointerEvents: "none" } : btnDangerStyle}
-        >
-          全リセット
-        </button>
-
-        <div style={dividerStyle} />
-
-        {/* Zoom fit */}
-        <Tooltip label="フィット表示" shortcut="Ctrl+0">
-          <button
-            type="button"
-            onClick={handleFit}
-            disabled={!baseState.imageData}
-            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-            aria-label="フィット表示"
-          >
-            <Maximize2 size={16} />
-          </button>
-        </Tooltip>
-
-        <div style={dividerStyle} />
-
-        {/* Export SVG */}
-        <Tooltip label="SVG出力">
-          <button
-            type="button"
-            onClick={handleExportSvg}
-            disabled={!baseState.imageData}
-            style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
-            aria-label="SVG出力"
-          >
-            <FileCode2 size={16} />
-          </button>
-        </Tooltip>
-
-        {/* Export image modal trigger */}
-        <Tooltip label="画像出力 (PNG/JPEG/WebP)">
-          <button
-            type="button"
-            onClick={() => setExportModalOpen(true)}
-            disabled={!baseState.imageData}
-            style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
-            aria-label="画像出力"
-          >
-            <Download size={16} />
-          </button>
-        </Tooltip>
-
-        {/* Issue #8: Copy canvas to clipboard */}
-        <Tooltip label="クリップボードにコピー (Ctrl+C)">
-          <button
-            type="button"
-            onClick={handleCopyToClipboard}
-            disabled={!baseState.imageData}
-            style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
-            aria-label="クリップボードにコピー"
-          >
-            <Copy size={16} />
-          </button>
-        </Tooltip>
-
-        <div style={dividerStyle} />
-
-        {/* B-1: Transparent white */}
-        <Tooltip label="白を透過">
-          <button
-            type="button"
-            onClick={handleTransparentWhite}
-            disabled={!baseState.imageData}
-            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-            aria-label="白を透過"
-          >
-            <Wand2 size={16} />
-          </button>
-        </Tooltip>
-
-        {/* Issue #9: Canvas size */}
-        <Tooltip label="キャンバスサイズ変更">
-          <button
-            type="button"
-            onClick={() => setCanvasSizeModalOpen(true)}
-            disabled={!baseState.imageData}
-            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-            aria-label="キャンバスサイズ変更"
-          >
-            <Frame size={16} />
-          </button>
-        </Tooltip>
-
-        <div style={dividerStyle} />
-
-        {/* Tool-dependent color swatch + HSV picker */}
-        {(mode === "color" || mode === "replace-all" || mode === "brush") && (
-          <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
+          {/* Issue #5: Project save */}
+          <Tooltip label="プロジェクト保存 (.choco)" shortcut="Ctrl+S">
             <button
-              ref={colorSwatchRef}
               type="button"
-              onClick={() => setHsvPickerOpen((v) => !v)}
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: "50%",
-                background: selectedColor,
-                border: `2px solid ${T.color.borderMid}`,
-                cursor: "pointer",
-                padding: 0,
-                flexShrink: 0,
-              }}
-              title="HSVピッカーで色を選択"
-              aria-label="HSVピッカーを開く"
-            />
-            <input
-              type="color"
-              value={selectedColor}
-              onChange={(e) => {
-                setSelectedColor(e.target.value);
-                setHsvPickerOpen(false);
-              }}
-              style={{
-                width: 16,
-                height: 16,
-                cursor: "pointer",
-                border: `1px solid ${T.color.borderMid}`,
-                borderRadius: T.radius.sm,
-                background: "none",
-                padding: 0,
-                outline: "none",
-                opacity: 0.7,
-              }}
-              title="色を直接入力"
-            />
-            {hsvPickerOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 200 }}>
-                <HsvPicker
-                  hex={selectedColor}
-                  onChange={(h) => setSelectedColor(h)}
-                  onClose={() => setHsvPickerOpen(false)}
-                />
+              onClick={handleSaveProject}
+              disabled={!baseState.imageData}
+              style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+              aria-label="プロジェクト保存"
+            >
+              <Save size={16} />
+            </button>
+          </Tooltip>
+
+          {/* Issue #5: Project load */}
+          <Tooltip label="プロジェクト読込 (.choco)" shortcut="Ctrl+O">
+            <button
+              type="button"
+              onClick={handleLoadProject}
+              style={iconBtnStyle}
+              aria-label="プロジェクト読込"
+            >
+              <FolderInput size={16} />
+            </button>
+          </Tooltip>
+
+          {/* Issue #7: Recent files dropdown */}
+          <div ref={recentMenuRef} style={{ position: "relative" }}>
+            <Tooltip label="最近開いたファイル">
+              <button
+                type="button"
+                onClick={() => setRecentMenuOpen((v) => !v)}
+                style={recentFiles.length === 0 ? { ...iconBtnStyle, opacity: 0.35 } : iconBtnStyle}
+                aria-label="最近開いたファイル"
+                aria-haspopup="listbox"
+                aria-expanded={recentMenuOpen}
+              >
+                <Clock size={16} />
+              </button>
+            </Tooltip>
+            {recentMenuOpen && recentFiles.length > 0 && (
+              <div
+                role="listbox"
+                aria-label="最近開いたファイル一覧"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  zIndex: 200,
+                  background: T.color.bgElevated,
+                  border: `1px solid ${T.color.borderMid}`,
+                  borderRadius: T.radius.md,
+                  boxShadow: T.shadow.elevated,
+                  minWidth: 220,
+                  padding: "4px 0",
+                }}
+              >
+                {recentFiles.map((entry) => (
+                  <button
+                    key={entry.name + entry.lastAccessedAt}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    onClick={() => {
+                      setRecentMenuOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: T.space.sm,
+                      width: "100%",
+                      padding: `${T.space.xs}px ${T.space.sm}px`,
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: T.color.textPrimary,
+                      fontFamily: T.font.family,
+                      fontSize: T.font.body,
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background = T.color.bgPanel;
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                    }}
+                  >
+                    <img
+                      src={entry.thumbnailDataUrl}
+                      alt=""
+                      aria-hidden="true"
+                      style={{
+                        width: 32,
+                        height: 32,
+                        objectFit: "contain",
+                        borderRadius: T.radius.sm,
+                        border: `1px solid ${T.color.border}`,
+                        background: T.color.checkerA,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ overflow: "hidden", flex: 1 }}>
+                      <div
+                        style={{
+                          fontSize: T.font.body,
+                          color: T.color.textPrimary,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.name}
+                      </div>
+                      <div style={{ fontSize: T.font.badge, color: T.color.textMuted }}>
+                        {formatRelativeTime(entry.lastAccessedAt)}
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             )}
           </div>
-        )}
 
-        {/* Brush size — brush mode only */}
-        {mode === "brush" && (
-          <>
-            <span style={labelStyle}>太さ: {brushSize}</span>
-            <input
-              type="range"
-              min={1}
-              max={100}
-              value={brushSize}
-              onChange={(e) => setBrushSize(Number(e.target.value))}
-              style={{ width: 72 }}
-              title="ブラシサイズ (1-100px)"
-            />
-          </>
-        )}
+          <div style={dividerStyle} />
 
-        {/* Tolerance — not shown in brush mode */}
-        {mode !== "brush" && (
-          <>
-            <span style={labelStyle}>許容値: {tolerance}</span>
-            <input
-              type="range"
-              min={0}
-              max={128}
-              value={tolerance}
-              onChange={(e) => setTolerance(Number(e.target.value))}
-              style={{ width: 72 }}
-              title="色許容値"
-            />
-          </>
-        )}
-
-        {/* Hole-fill — not shown in brush mode */}
-        {mode !== "brush" && (
-          <>
-            <span style={labelStyle}>穴埋め: {closeRadius}</span>
-            <input
-              type="range"
-              min={0}
-              max={5}
-              step={1}
-              value={closeRadius}
-              onChange={(e) => setCloseRadius(Number(e.target.value))}
-              style={{ width: 54 }}
-              title="穴埋め半径 (0=OFF, クロージング半径 1-5)"
-            />
-          </>
-        )}
-
-        {/* Feather radius — not shown in brush mode */}
-        {mode !== "brush" && (
-          <>
-            <span style={labelStyle}>フェザー: {featherRadius}</span>
-            <input
-              type="range"
-              min={0}
-              max={20}
-              step={1}
-              value={featherRadius}
-              onChange={(e) => setFeatherRadius(Number(e.target.value))}
-              style={{ width: 62 }}
-              title="フェザー (境界ぼかし) 0=OFF, 1-20px"
-            />
-          </>
-        )}
-
-        {/* Smooth replace — replace-all mode only */}
-        {mode === "replace-all" && (
-          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="境界を滑らかにブレンドして置換">
-            <input
-              type="checkbox"
-              checked={smoothReplace}
-              onChange={(e) => setSmoothReplace(e.target.checked)}
-              style={{ cursor: "pointer" }}
-            />
-            滑らかに置換
-          </label>
-        )}
-
-        {/* Antialias boundary — not brush/replace-all */}
-        {mode !== "brush" && mode !== "replace-all" && (
-          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
-            <input
-              type="checkbox"
-              checked={includeAntialias}
-              onChange={(e) => setIncludeAntialias(e.target.checked)}
-              style={{ cursor: "pointer" }}
-            />
-            境界含める
-          </label>
-        )}
-
-        {/* 8-neighbor connectivity — not brush/replace-all */}
-        {mode !== "brush" && mode !== "replace-all" && (
-          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
-            <input
-              type="checkbox"
-              checked={connectivity === 8}
-              onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
-              style={{ cursor: "pointer" }}
-            />
-            8近傍
-          </label>
-        )}
-
-        {/* Save brand swatch — color/replace-all mode */}
-        {(mode === "color" || mode === "replace-all") && (
+          {/* Undo / Redo / Reset */}
+          <Tooltip label="元に戻す" shortcut="Ctrl+Z">
+            <button
+              type="button"
+              onClick={() => { editorHistory.undo(); triggerRedraw(); setStatus("元に戻しました"); }}
+              disabled={!editorHistory.canUndo}
+              style={!editorHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+              aria-label="元に戻す"
+            >
+              <Undo2 size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip label="やり直し" shortcut="Ctrl+Y">
+            <button
+              type="button"
+              onClick={() => { editorHistory.redo(); triggerRedraw(); setStatus("やり直しました"); }}
+              disabled={!editorHistory.canRedo}
+              style={!editorHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+              aria-label="やり直し"
+            >
+              <Redo2 size={16} />
+            </button>
+          </Tooltip>
           <button
             type="button"
-            onClick={handleSaveBrandSwatch}
-            style={btnStyle}
-            title="現在の選択色をブランドカラーとして保存 (最大8色)"
+            onClick={() => { editorHistory.reset(); triggerRedraw(); setStatus("全リセット完了"); }}
+            disabled={regions.length === 0}
+            style={regions.length === 0 ? { ...btnDangerStyle, opacity: 0.35, pointerEvents: "none" } : btnDangerStyle}
           >
-            色を保存
+            全リセット
           </button>
-        )}
 
-        {/* S5-1: Text tool options */}
-        {mode === "text" && (
-          <>
-            <div style={dividerStyle} />
-            <select
-              value={textFontFamily}
-              onChange={(e) => setTextFontFamily(e.target.value)}
-              style={selectStyle}
-              title="フォント"
+          <div style={dividerStyle} />
+
+          {/* Zoom fit */}
+          <Tooltip label="フィット表示" shortcut="Ctrl+0">
+            <button
+              type="button"
+              onClick={handleFit}
+              disabled={!baseState.imageData}
+              style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+              aria-label="フィット表示"
             >
-              <option value="sans-serif">Sans-serif</option>
-              <option value="serif">Serif</option>
-              <option value="monospace">Monospace</option>
-              <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
-              <option value="cursive">Cursive</option>
-              <option value="fantasy">Fantasy</option>
-            </select>
-            <span style={labelStyle}>サイズ: {textFontSize}</span>
-            <input
-              type="range"
-              min={10}
-              max={200}
-              value={textFontSize}
-              onChange={(e) => setTextFontSize(Number(e.target.value))}
-              style={{ width: 72 }}
-              title="フォントサイズ (10-200px)"
-            />
-          </>
-        )}
+              <Maximize2 size={16} />
+            </button>
+          </Tooltip>
 
-        {/* S6-2: Stroke/Fill options — text and shape modes */}
-        {(mode === "text" || mode === "shape") && (
-          <>
-            <div style={dividerStyle} />
-            <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+          <div style={dividerStyle} />
+
+          {/* Export SVG */}
+          <Tooltip label="SVG出力">
+            <button
+              type="button"
+              onClick={handleExportSvg}
+              disabled={!baseState.imageData}
+              style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
+              aria-label="SVG出力"
+            >
+              <FileCode2 size={16} />
+            </button>
+          </Tooltip>
+
+          {/* Export image modal trigger */}
+          <Tooltip label="画像出力 (PNG/JPEG/WebP)">
+            <button
+              type="button"
+              onClick={() => setExportModalOpen(true)}
+              disabled={!baseState.imageData}
+              style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
+              aria-label="画像出力"
+            >
+              <Download size={16} />
+            </button>
+          </Tooltip>
+
+          {/* Issue #8: Copy canvas to clipboard */}
+          <Tooltip label="クリップボードにコピー (Ctrl+C)">
+            <button
+              type="button"
+              onClick={handleCopyToClipboard}
+              disabled={!baseState.imageData}
+              style={!baseState.imageData ? { ...iconBtnSuccessStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnSuccessStyle}
+              aria-label="クリップボードにコピー"
+            >
+              <Copy size={16} />
+            </button>
+          </Tooltip>
+
+          <div style={dividerStyle} />
+
+          {/* B-1: Transparent white */}
+          <Tooltip label="白を透過">
+            <button
+              type="button"
+              onClick={handleTransparentWhite}
+              disabled={!baseState.imageData}
+              style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+              aria-label="白を透過"
+            >
+              <Wand2 size={16} />
+            </button>
+          </Tooltip>
+
+          {/* Issue #9: Canvas size */}
+          <Tooltip label="キャンバスサイズ変更">
+            <button
+              type="button"
+              onClick={() => setCanvasSizeModalOpen(true)}
+              disabled={!baseState.imageData}
+              style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+              aria-label="キャンバスサイズ変更"
+            >
+              <Frame size={16} />
+            </button>
+          </Tooltip>
+
+          <div style={dividerStyle} />
+
+          {/* S7: Opacity slider */}
+          <Tooltip label="不透明度">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <Droplets size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
+            </span>
+          </Tooltip>
+          <span style={labelStyle}>{opacity}%</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={opacity}
+            onChange={(e) => setOpacity(Number(e.target.value))}
+            style={{ width: 62 }}
+            title={`不透明度: ${opacity}%`}
+          />
+
+          {/* S7: Blend mode */}
+          <Tooltip label="ブレンドモード">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <Layers size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
+            </span>
+          </Tooltip>
+          <select
+            value={blendMode}
+            onChange={(e) => setBlendMode(e.target.value as "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten")}
+            style={selectStyle}
+            title="ブレンドモード"
+          >
+            <option value="normal">通常</option>
+            <option value="multiply">乗算</option>
+            <option value="screen">スクリーン</option>
+            <option value="overlay">オーバーレイ</option>
+            <option value="darken">暗く</option>
+            <option value="lighten">明るく</option>
+          </select>
+
+          <div style={dividerStyle} />
+
+          {/* S8: Grid + Snap controls */}
+          <Tooltip label="グリッド表示">
+            <button
+              type="button"
+              onClick={() => setGridEnabled((v) => !v)}
+              style={gridEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+              aria-label="グリッド表示"
+              aria-pressed={gridEnabled}
+            >
+              <Grid3x3 size={16} />
+            </button>
+          </Tooltip>
+          {gridEnabled && (
+            <>
+              <span style={labelStyle}>間隔: {gridSize}</span>
               <input
-                type="checkbox"
-                checked={useFill}
-                onChange={(e) => setUseFill(e.target.checked)}
-                style={{ cursor: "pointer" }}
+                type="range"
+                min={5}
+                max={100}
+                step={5}
+                value={gridSize}
+                onChange={(e) => setGridSize(Number(e.target.value))}
+                style={{ width: 62 }}
+                title={`グリッド間隔: ${gridSize}px`}
               />
-              塗り
-            </label>
-            <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={useStroke}
-                onChange={(e) => setUseStroke(e.target.checked)}
-                style={{ cursor: "pointer" }}
-              />
-              線
-            </label>
-            {useStroke && (
-              <>
-                <input
-                  type="color"
-                  value={strokeColor}
-                  onChange={(e) => setStrokeColor(e.target.value)}
+            </>
+          )}
+          <Tooltip label="スナップ">
+            <button
+              type="button"
+              onClick={() => setSnapEnabled((v) => !v)}
+              style={snapEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+              aria-label="スナップ"
+              aria-pressed={snapEnabled}
+            >
+              <Magnet size={16} />
+            </button>
+          </Tooltip>
+
+          <div style={dividerStyle} />
+
+          {/* Before/after comparison */}
+          <button
+            type="button"
+            onMouseDown={() => setComparing(true)}
+            onMouseUp={() => setComparing(false)}
+            onMouseLeave={() => setComparing(false)}
+            disabled={!baseState.imageData || regions.length === 0}
+            style={
+              (!baseState.imageData || regions.length === 0)
+                ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" }
+                : comparing
+                  ? { ...btnStyle, background: T.color.bgElevated, border: `1px solid ${T.color.accent}` }
+                  : btnStyle
+            }
+            title="押している間は編集前の元画像を表示"
+          >
+            比較
+          </button>
+        </div>
+
+        {/* --- Lower row: mode-specific controls (hidden for eyedropper) --- */}
+        {mode !== "eyedropper" && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: T.space.xs,
+              padding: `4px ${T.space.sm}px`,
+              flexWrap: "wrap",
+            }}
+          >
+            {/* Color swatch + HSV picker — color / replace-all / brush modes */}
+            {(mode === "color" || mode === "replace-all" || mode === "brush") && (
+              <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
+                <button
+                  ref={colorSwatchRef}
+                  type="button"
+                  onClick={() => setHsvPickerOpen((v) => !v)}
                   style={{
                     width: 24,
                     height: 24,
+                    borderRadius: "50%",
+                    background: selectedColor,
+                    border: `2px solid ${T.color.borderMid}`,
+                    cursor: "pointer",
+                    padding: 0,
+                    flexShrink: 0,
+                  }}
+                  title="HSVピッカーで色を選択"
+                  aria-label="HSVピッカーを開く"
+                />
+                <input
+                  type="color"
+                  value={selectedColor}
+                  onChange={(e) => {
+                    setSelectedColor(e.target.value);
+                    setHsvPickerOpen(false);
+                  }}
+                  style={{
+                    width: 16,
+                    height: 16,
                     cursor: "pointer",
                     border: `1px solid ${T.color.borderMid}`,
                     borderRadius: T.radius.sm,
                     background: "none",
                     padding: 0,
                     outline: "none",
+                    opacity: 0.7,
                   }}
-                  title="線色"
+                  title="色を直接入力"
                 />
-                <span style={labelStyle}>線幅: {strokeWidth}</span>
+                {hsvPickerOpen && (
+                  <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 200 }}>
+                    <HsvPicker
+                      hex={selectedColor}
+                      onChange={(h) => setSelectedColor(h)}
+                      onClose={() => setHsvPickerOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Brush size — brush mode only */}
+            {mode === "brush" && (
+              <>
+                <span style={labelStyle}>太さ: {brushSize}</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={100}
+                  value={brushSize}
+                  onChange={(e) => setBrushSize(Number(e.target.value))}
+                  style={{ width: 72 }}
+                  title="ブラシサイズ (1-100px)"
+                />
+              </>
+            )}
+
+            {/* Tolerance — color / replace-all / transparent modes */}
+            {(mode === "color" || mode === "replace-all" || mode === "transparent") && (
+              <>
+                <span style={labelStyle}>許容値: {tolerance}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={128}
+                  value={tolerance}
+                  onChange={(e) => setTolerance(Number(e.target.value))}
+                  style={{ width: 72 }}
+                  title="色許容値"
+                />
+              </>
+            )}
+
+            {/* Hole-fill — color / replace-all / transparent modes */}
+            {(mode === "color" || mode === "replace-all" || mode === "transparent") && (
+              <>
+                <span style={labelStyle}>穴埋め: {closeRadius}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={5}
+                  step={1}
+                  value={closeRadius}
+                  onChange={(e) => setCloseRadius(Number(e.target.value))}
+                  style={{ width: 54 }}
+                  title="穴埋め半径 (0=OFF, クロージング半径 1-5)"
+                />
+              </>
+            )}
+
+            {/* Feather radius — transparent mode */}
+            {mode === "transparent" && (
+              <>
+                <span style={labelStyle}>フェザー: {featherRadius}</span>
                 <input
                   type="range"
                   min={0}
                   max={20}
-                  value={strokeWidth}
-                  onChange={(e) => setStrokeWidth(Number(e.target.value))}
+                  step={1}
+                  value={featherRadius}
+                  onChange={(e) => setFeatherRadius(Number(e.target.value))}
                   style={{ width: 62 }}
-                  title="線幅 (0-20px)"
+                  title="フェザー (境界ぼかし) 0=OFF, 1-20px"
                 />
               </>
             )}
-          </>
-        )}
 
-        {/* S6-1: Shape kind selector */}
-        {mode === "shape" && (
-          <>
-            <div style={dividerStyle} />
-            <select
-              value={shapeKind}
-              onChange={(e) => setShapeKind(e.target.value as ShapeKind)}
-              style={selectStyle}
-              title="シェイプの種類"
-            >
-              <option value="rect">矩形</option>
-              <option value="circle">楕円</option>
-              <option value="polygon">多角形</option>
-              <option value="star">星</option>
-            </select>
-            {shapeKind === "polygon" && (
+            {/* Smooth replace — replace-all mode only */}
+            {mode === "replace-all" && (
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="境界を滑らかにブレンドして置換">
+                <input
+                  type="checkbox"
+                  checked={smoothReplace}
+                  onChange={(e) => setSmoothReplace(e.target.checked)}
+                  style={{ cursor: "pointer" }}
+                />
+                滑らかに置換
+              </label>
+            )}
+
+            {/* Antialias boundary — color / transparent modes */}
+            {(mode === "color" || mode === "transparent") && (
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="色相が近い半透明ピクセルも境界として含める">
+                <input
+                  type="checkbox"
+                  checked={includeAntialias}
+                  onChange={(e) => setIncludeAntialias(e.target.checked)}
+                  style={{ cursor: "pointer" }}
+                />
+                境界含める
+              </label>
+            )}
+
+            {/* 8-neighbor connectivity — color / transparent modes */}
+            {(mode === "color" || mode === "transparent") && (
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="斜め隣接ピクセルを同色選択に含める (8近傍)">
+                <input
+                  type="checkbox"
+                  checked={connectivity === 8}
+                  onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
+                  style={{ cursor: "pointer" }}
+                />
+                8近傍
+              </label>
+            )}
+
+            {/* Save brand swatch — color/replace-all mode */}
+            {(mode === "color" || mode === "replace-all") && (
+              <button
+                type="button"
+                onClick={handleSaveBrandSwatch}
+                style={btnStyle}
+                title="現在の選択色をブランドカラーとして保存 (最大8色)"
+              >
+                色を保存
+              </button>
+            )}
+
+            {/* S5-1: Text tool options */}
+            {mode === "text" && (
               <>
-                <span style={labelStyle}>辺数: {polyVertices}</span>
+                <select
+                  value={textFontFamily}
+                  onChange={(e) => setTextFontFamily(e.target.value)}
+                  style={selectStyle}
+                  title="フォント"
+                >
+                  <option value="sans-serif">Sans-serif</option>
+                  <option value="serif">Serif</option>
+                  <option value="monospace">Monospace</option>
+                  <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
+                  <option value="cursive">Cursive</option>
+                  <option value="fantasy">Fantasy</option>
+                </select>
+                <span style={labelStyle}>サイズ: {textFontSize}</span>
                 <input
                   type="range"
-                  min={3}
-                  max={12}
-                  value={polyVertices}
-                  onChange={(e) => setPolyVertices(Number(e.target.value))}
-                  style={{ width: 54 }}
-                  title="多角形の辺数 (3-12)"
+                  min={10}
+                  max={200}
+                  value={textFontSize}
+                  onChange={(e) => setTextFontSize(Number(e.target.value))}
+                  style={{ width: 72 }}
+                  title="フォントサイズ (10-200px)"
                 />
               </>
             )}
-          </>
-        )}
 
-        <div style={dividerStyle} />
-
-        {/* S7: Opacity slider */}
-        <Tooltip label="不透明度">
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-            <Droplets size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
-          </span>
-        </Tooltip>
-        <span style={labelStyle}>{opacity}%</span>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={opacity}
-          onChange={(e) => setOpacity(Number(e.target.value))}
-          style={{ width: 62 }}
-          title={`不透明度: ${opacity}%`}
-        />
-
-        {/* S7: Blend mode */}
-        <Tooltip label="ブレンドモード">
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-            <Layers size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
-          </span>
-        </Tooltip>
-        <select
-          value={blendMode}
-          onChange={(e) => setBlendMode(e.target.value as "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten")}
-          style={selectStyle}
-          title="ブレンドモード"
-        >
-          <option value="normal">通常</option>
-          <option value="multiply">乗算</option>
-          <option value="screen">スクリーン</option>
-          <option value="overlay">オーバーレイ</option>
-          <option value="darken">暗く</option>
-          <option value="lighten">明るく</option>
-        </select>
-
-        {/* S7: Gradient fill button — shown in brush/text/shape modes */}
-        {(mode === "brush" || mode === "text" || mode === "shape") && (
-          <>
-            <div style={dividerStyle} />
-            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-              <Tooltip label="グラデーション設定">
-                <button
-                  type="button"
-                  onClick={() => setGradientEditorOpen((v) => !v)}
-                  style={{
-                    ...iconBtnStyle,
-                    background: gradientEditorOpen ? T.color.accent : T.color.bgElevated,
-                    border: `1px solid ${gradientEditorOpen ? T.color.accent : T.color.borderMid}`,
-                    padding: "0 6px",
-                    width: "auto",
-                    gap: 4,
-                    fontSize: T.font.label,
-                  }}
-                  aria-label="グラデーション設定"
+            {/* S6-1: Shape kind selector */}
+            {mode === "shape" && (
+              <>
+                <select
+                  value={shapeKind}
+                  onChange={(e) => setShapeKind(e.target.value as ShapeKind)}
+                  style={selectStyle}
+                  title="シェイプの種類"
                 >
-                  <span style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: 2,
-                    background: fillType === "solid"
-                      ? selectedColor
-                      : fillType === "linearGradient"
-                        ? `linear-gradient(90deg, ${gradientConfig.stops[0]?.color ?? "#ff0000"}, ${gradientConfig.stops[gradientConfig.stops.length - 1]?.color ?? "#0000ff"})`
-                        : `radial-gradient(circle, ${gradientConfig.stops[0]?.color ?? "#ff0000"}, ${gradientConfig.stops[gradientConfig.stops.length - 1]?.color ?? "#0000ff"})`,
-                    border: `1px solid ${T.color.borderMid}`,
-                    flexShrink: 0,
-                    display: "inline-block",
-                  }} />
-                  塗り
-                </button>
-              </Tooltip>
-              {gradientEditorOpen && (
-                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 300 }}>
-                  <GradientEditor
-                    fillType={fillType}
-                    gradientConfig={gradientConfig}
-                    onFillTypeChange={setFillType}
-                    onGradientConfigChange={setGradientConfig}
-                    onClose={() => setGradientEditorOpen(false)}
+                  <option value="rect">矩形</option>
+                  <option value="circle">楕円</option>
+                  <option value="polygon">多角形</option>
+                  <option value="star">星</option>
+                </select>
+                {shapeKind === "polygon" && (
+                  <>
+                    <span style={labelStyle}>辺数: {polyVertices}</span>
+                    <input
+                      type="range"
+                      min={3}
+                      max={12}
+                      value={polyVertices}
+                      onChange={(e) => setPolyVertices(Number(e.target.value))}
+                      style={{ width: 54 }}
+                      title="多角形の辺数 (3-12)"
+                    />
+                  </>
+                )}
+              </>
+            )}
+
+            {/* S6-2: Stroke/Fill options — text and shape modes */}
+            {(mode === "text" || mode === "shape") && (
+              <>
+                <div style={dividerStyle} />
+                <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={useFill}
+                    onChange={(e) => setUseFill(e.target.checked)}
+                    style={{ cursor: "pointer" }}
                   />
+                  塗り
+                </label>
+                <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={useStroke}
+                    onChange={(e) => setUseStroke(e.target.checked)}
+                    style={{ cursor: "pointer" }}
+                  />
+                  線
+                </label>
+                {useStroke && (
+                  <>
+                    <input
+                      type="color"
+                      value={strokeColor}
+                      onChange={(e) => setStrokeColor(e.target.value)}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        cursor: "pointer",
+                        border: `1px solid ${T.color.borderMid}`,
+                        borderRadius: T.radius.sm,
+                        background: "none",
+                        padding: 0,
+                        outline: "none",
+                      }}
+                      title="線色"
+                    />
+                    <span style={labelStyle}>線幅: {strokeWidth}</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20}
+                      value={strokeWidth}
+                      onChange={(e) => setStrokeWidth(Number(e.target.value))}
+                      style={{ width: 62 }}
+                      title="線幅 (0-20px)"
+                    />
+                  </>
+                )}
+              </>
+            )}
+
+            {/* S7: Gradient fill button — brush/text/shape modes */}
+            {(mode === "brush" || mode === "text" || mode === "shape") && (
+              <>
+                <div style={dividerStyle} />
+                <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  <Tooltip label="グラデーション設定">
+                    <button
+                      type="button"
+                      onClick={() => setGradientEditorOpen((v) => !v)}
+                      style={{
+                        ...iconBtnStyle,
+                        background: gradientEditorOpen ? T.color.accent : T.color.bgElevated,
+                        border: `1px solid ${gradientEditorOpen ? T.color.accent : T.color.borderMid}`,
+                        padding: "0 6px",
+                        width: "auto",
+                        gap: 4,
+                        fontSize: T.font.label,
+                      }}
+                      aria-label="グラデーション設定"
+                    >
+                      <span style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 2,
+                        background: fillType === "solid"
+                          ? selectedColor
+                          : fillType === "linearGradient"
+                            ? `linear-gradient(90deg, ${gradientConfig.stops[0]?.color ?? "#ff0000"}, ${gradientConfig.stops[gradientConfig.stops.length - 1]?.color ?? "#0000ff"})`
+                            : `radial-gradient(circle, ${gradientConfig.stops[0]?.color ?? "#ff0000"}, ${gradientConfig.stops[gradientConfig.stops.length - 1]?.color ?? "#0000ff"})`,
+                        border: `1px solid ${T.color.borderMid}`,
+                        flexShrink: 0,
+                        display: "inline-block",
+                      }} />
+                      塗り
+                    </button>
+                  </Tooltip>
+                  {gradientEditorOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 300 }}>
+                      <GradientEditor
+                        fillType={fillType}
+                        gradientConfig={gradientConfig}
+                        onFillTypeChange={setFillType}
+                        onGradientConfigChange={setGradientConfig}
+                        onClose={() => setGradientEditorOpen(false)}
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </>
+              </>
+            )}
+
+            {/* S8: Rotate + Flip + Align — shape/text modes only */}
+            {(mode === "shape" || mode === "text") && (
+              <>
+                <div style={dividerStyle} />
+                <Tooltip label="回転角度">
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                    <RotateCw size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
+                  </span>
+                </Tooltip>
+                <span style={labelStyle}>{draftRotateDeg}°</span>
+                <input
+                  type="range"
+                  min={-180}
+                  max={180}
+                  step={1}
+                  value={draftRotateDeg}
+                  onChange={(e) => setDraftRotateDeg(Number(e.target.value))}
+                  style={{ width: 72 }}
+                  title={`回転: ${draftRotateDeg}°`}
+                />
+                <Tooltip label="水平反転">
+                  <button
+                    type="button"
+                    onClick={() => setDraftFlipX((v) => !v)}
+                    style={draftFlipX ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+                    aria-label="水平反転"
+                    aria-pressed={draftFlipX}
+                  >
+                    <FlipHorizontal2 size={16} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="垂直反転">
+                  <button
+                    type="button"
+                    onClick={() => setDraftFlipY((v) => !v)}
+                    style={draftFlipY ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+                    aria-label="垂直反転"
+                    aria-pressed={draftFlipY}
+                  >
+                    <FlipVertical2 size={16} />
+                  </button>
+                </Tooltip>
+                <div style={dividerStyle} />
+                <Tooltip label="水平中央揃え">
+                  <button
+                    type="button"
+                    onClick={centerAlignDraftH}
+                    disabled={!baseState.imageData}
+                    style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+                    aria-label="水平中央揃え"
+                  >
+                    <AlignCenterHorizontal size={16} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="垂直中央揃え">
+                  <button
+                    type="button"
+                    onClick={centerAlignDraftV}
+                    disabled={!baseState.imageData}
+                    style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+                    aria-label="垂直中央揃え"
+                  >
+                    <AlignCenterVertical size={16} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="画面中央">
+                  <button
+                    type="button"
+                    onClick={centerAlignDraftBoth}
+                    disabled={!baseState.imageData}
+                    style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+                    aria-label="画面中央"
+                  >
+                    <AlignCenter size={16} />
+                  </button>
+                </Tooltip>
+              </>
+            )}
+          </div>
         )}
-
-        {/* S8: Grid + Snap controls (always visible) */}
-        <div style={dividerStyle} />
-        <Tooltip label="グリッド表示">
-          <button
-            type="button"
-            onClick={() => setGridEnabled((v) => !v)}
-            style={gridEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
-            aria-label="グリッド表示"
-            aria-pressed={gridEnabled}
-          >
-            <Grid3x3 size={16} />
-          </button>
-        </Tooltip>
-        {gridEnabled && (
-          <>
-            <span style={labelStyle}>間隔: {gridSize}</span>
-            <input
-              type="range"
-              min={5}
-              max={100}
-              step={5}
-              value={gridSize}
-              onChange={(e) => setGridSize(Number(e.target.value))}
-              style={{ width: 62 }}
-              title={`グリッド間隔: ${gridSize}px`}
-            />
-          </>
-        )}
-        <Tooltip label="スナップ">
-          <button
-            type="button"
-            onClick={() => setSnapEnabled((v) => !v)}
-            style={snapEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
-            aria-label="スナップ"
-            aria-pressed={snapEnabled}
-          >
-            <Magnet size={16} />
-          </button>
-        </Tooltip>
-
-        {/* S8: Rotate + Flip — shape/text modes only */}
-        {(mode === "shape" || mode === "text") && (
-          <>
-            <div style={dividerStyle} />
-            <Tooltip label="回転角度">
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                <RotateCw size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
-              </span>
-            </Tooltip>
-            <span style={labelStyle}>{draftRotateDeg}°</span>
-            <input
-              type="range"
-              min={-180}
-              max={180}
-              step={1}
-              value={draftRotateDeg}
-              onChange={(e) => setDraftRotateDeg(Number(e.target.value))}
-              style={{ width: 72 }}
-              title={`回転: ${draftRotateDeg}°`}
-            />
-            <Tooltip label="水平反転">
-              <button
-                type="button"
-                onClick={() => setDraftFlipX((v) => !v)}
-                style={draftFlipX ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
-                aria-label="水平反転"
-                aria-pressed={draftFlipX}
-              >
-                <FlipHorizontal2 size={16} />
-              </button>
-            </Tooltip>
-            <Tooltip label="垂直反転">
-              <button
-                type="button"
-                onClick={() => setDraftFlipY((v) => !v)}
-                style={draftFlipY ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
-                aria-label="垂直反転"
-                aria-pressed={draftFlipY}
-              >
-                <FlipVertical2 size={16} />
-              </button>
-            </Tooltip>
-            <div style={dividerStyle} />
-            <Tooltip label="水平中央揃え">
-              <button
-                type="button"
-                onClick={centerAlignDraftH}
-                disabled={!baseState.imageData}
-                style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-                aria-label="水平中央揃え"
-              >
-                <AlignCenterHorizontal size={16} />
-              </button>
-            </Tooltip>
-            <Tooltip label="垂直中央揃え">
-              <button
-                type="button"
-                onClick={centerAlignDraftV}
-                disabled={!baseState.imageData}
-                style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-                aria-label="垂直中央揃え"
-              >
-                <AlignCenterVertical size={16} />
-              </button>
-            </Tooltip>
-            <Tooltip label="画面中央">
-              <button
-                type="button"
-                onClick={centerAlignDraftBoth}
-                disabled={!baseState.imageData}
-                style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
-                aria-label="画面中央"
-              >
-                <AlignCenter size={16} />
-              </button>
-            </Tooltip>
-          </>
-        )}
-
-        <div style={dividerStyle} />
-
-        {/* Before/after comparison */}
-        <button
-          type="button"
-          onMouseDown={() => setComparing(true)}
-          onMouseUp={() => setComparing(false)}
-          onMouseLeave={() => setComparing(false)}
-          disabled={!baseState.imageData || regions.length === 0}
-          style={
-            (!baseState.imageData || regions.length === 0)
-              ? { ...btnStyle, opacity: 0.35, pointerEvents: "none" }
-              : comparing
-                ? { ...btnStyle, background: T.color.bgElevated, border: `1px solid ${T.color.accent}` }
-                : btnStyle
-          }
-          title="押している間は編集前の元画像を表示"
-        >
-          比較
-        </button>
       </div>
 
       {/* ===== Main body: left toolbar + canvas + right panel ===== */}
