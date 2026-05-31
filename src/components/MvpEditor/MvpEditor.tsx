@@ -2252,7 +2252,7 @@ export function MvpEditor() {
               onClick={handleReferencePaste}
               style={referenceImage ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
               aria-label={t("label.referenceLayer", lang)}
-              aria-pressed={referenceImage ? "true" : "false"}
+              aria-pressed={!!referenceImage}
             >
               <Layers size={16} />
             </button>
@@ -2859,7 +2859,7 @@ export function MvpEditor() {
           <Tooltip label={t("tool.color", lang)}>
             <button
               type="button"
-              aria-pressed={mode === "color" ? "true" : "false"}
+              aria-pressed={mode === "color"}
               onClick={() => setMode("color")}
               style={mode === "color" ? leftToolBtnActiveStyle : leftToolBtnStyle}
               aria-label={t("tool.color", lang)}
@@ -2870,7 +2870,7 @@ export function MvpEditor() {
           <Tooltip label={t("tool.transparent", lang)}>
             <button
               type="button"
-              aria-pressed={mode === "transparent" ? "true" : "false"}
+              aria-pressed={mode === "transparent"}
               onClick={() => setMode("transparent")}
               style={mode === "transparent" ? leftToolBtnActiveStyle : leftToolBtnStyle}
               aria-label={t("tool.transparent", lang)}
@@ -2881,7 +2881,7 @@ export function MvpEditor() {
           <Tooltip label={`${t("tool.eyedropper", lang)} (I)`}>
             <button
               type="button"
-              aria-pressed={mode === "eyedropper" ? "true" : "false"}
+              aria-pressed={mode === "eyedropper"}
               onClick={() => setMode("eyedropper")}
               style={mode === "eyedropper" ? leftToolBtnActiveStyle : leftToolBtnStyle}
               aria-label={t("tool.eyedropper", lang)}
@@ -2892,7 +2892,7 @@ export function MvpEditor() {
           <Tooltip label={`${t("tool.replaceAll", lang)} (R)`}>
             <button
               type="button"
-              aria-pressed={mode === "replace-all" ? "true" : "false"}
+              aria-pressed={mode === "replace-all"}
               onClick={() => setMode("replace-all")}
               style={mode === "replace-all" ? leftToolBtnActiveStyle : leftToolBtnStyle}
               aria-label={t("tool.replaceAll", lang)}
@@ -2903,7 +2903,7 @@ export function MvpEditor() {
           <Tooltip label={`${t("tool.brush", lang)} (B)`}>
             <button
               type="button"
-              aria-pressed={mode === "brush" ? "true" : "false"}
+              aria-pressed={mode === "brush"}
               onClick={() => setMode("brush")}
               style={mode === "brush" ? leftToolBtnActiveStyle : leftToolBtnStyle}
               aria-label={t("tool.brush", lang)}
@@ -2914,7 +2914,7 @@ export function MvpEditor() {
           <Tooltip label={`${t("tool.text", lang)} (T)`}>
             <button
               type="button"
-              aria-pressed={mode === "text" ? "true" : "false"}
+              aria-pressed={mode === "text"}
               onClick={() => setMode("text")}
               style={mode === "text" ? leftToolBtnActiveStyle : leftToolBtnStyle}
               aria-label={t("tool.text", lang)}
@@ -2925,7 +2925,7 @@ export function MvpEditor() {
           <Tooltip label={`${t("tool.shape", lang)} (U)`}>
             <button
               type="button"
-              aria-pressed={mode === "shape" ? "true" : "false"}
+              aria-pressed={mode === "shape"}
               onClick={() => setMode("shape")}
               style={mode === "shape" ? leftToolBtnActiveStyle : leftToolBtnStyle}
               aria-label={t("tool.shape", lang)}
