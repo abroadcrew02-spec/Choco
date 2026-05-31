@@ -16,6 +16,14 @@ import {
   Square,
   Droplets,
   Layers,
+  Grid3x3,
+  Magnet,
+  RotateCw,
+  FlipHorizontal2,
+  FlipVertical2,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignCenter,
 } from "lucide-react";
 import {
   GradientEditor,
@@ -1224,6 +1232,16 @@ export function MvpEditor() {
   const [gradientConfig, setGradientConfig] = useState<GradientConfig>(DEFAULT_GRADIENT_CONFIG);
   const [gradientEditorOpen, setGradientEditorOpen] = useState<boolean>(false);
 
+  // S8: grid / snap
+  const [gridEnabled, setGridEnabled] = useState<boolean>(false);
+  const [snapEnabled, setSnapEnabled] = useState<boolean>(false);
+  const [gridSize, setGridSize] = useState<number>(20);
+
+  // S8: draft transform (rotate + flip) — applied on shape/text commit
+  const [draftRotateDeg, setDraftRotateDeg] = useState<number>(0);
+  const [draftFlipX, setDraftFlipX] = useState<boolean>(false);
+  const [draftFlipY, setDraftFlipY] = useState<boolean>(false);
+
   const zoom = useZoomPan(spacePressed);
 
   // ---------------------------------------------------------------------------
@@ -1424,9 +1442,28 @@ export function MvpEditor() {
     if (!comparing && shapeOverlayCanvasRef.current) {
       ctx.drawImage(shapeOverlayCanvasRef.current, 0, 0);
     }
+    // S8: Draw grid overlay
+    if (!comparing && gridEnabled && gridSize > 0) {
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = gridSize; x < w; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
+      for (let y = gridSize; y < h; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
   // redrawTick is intentionally included so brush strokes (ref mutations) trigger redraws
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseState, regions, comparing, redrawTick]);
+  }, [baseState, regions, comparing, redrawTick, gridEnabled, gridSize]);
 
   // ---------------------------------------------------------------------------
   // Image loading
@@ -1571,6 +1608,18 @@ export function MvpEditor() {
   );
 
   // ---------------------------------------------------------------------------
+  // S8: Snap helper — rounds coord to nearest grid multiple when snap is ON
+  // ---------------------------------------------------------------------------
+
+  const snapCoord = useCallback(
+    (v: number): number => {
+      if (!snapEnabled || gridSize <= 0) return v;
+      return Math.round(v / gridSize) * gridSize;
+    },
+    [snapEnabled, gridSize]
+  );
+
+  // ---------------------------------------------------------------------------
   // Canvas interactions
   // ---------------------------------------------------------------------------
 
@@ -1609,9 +1658,9 @@ export function MvpEditor() {
       if (!coords) return;
       const { x, y } = coords;
 
-      // Text mode: place text input at click position
+      // Text mode: place text input at click position (snap if enabled)
       if (mode === "text") {
-        setTextDraft({ x, y, value: "" });
+        setTextDraft({ x: snapCoord(x), y: snapCoord(y), value: "" });
         // Focus will be handled by useEffect after render
         return;
       }
@@ -1750,7 +1799,7 @@ export function MvpEditor() {
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, featherRadius, pushBakeSnapshot, triggerRedraw, addRecentColor]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, featherRadius, pushBakeSnapshot, triggerRedraw, addRecentColor, snapCoord]
   );
 
   // ---------------------------------------------------------------------------
@@ -1914,18 +1963,24 @@ export function MvpEditor() {
       ctx.font = fontStr;
       ctx.textBaseline = "top";
 
+      // S8: apply rotate + flip around text anchor point
+      const textMetrics = ctx.measureText(draft.value);
+      const textW = textMetrics.width;
+      const textH = textFontSize;
+      const textCx = draft.x + textW / 2;
+      const textCy = draft.y + textH / 2;
+      ctx.translate(textCx, textCy);
+      if (draftRotateDeg !== 0) ctx.rotate((draftRotateDeg * Math.PI) / 180);
+      if (draftFlipX) ctx.scale(-1, 1);
+      if (draftFlipY) ctx.scale(1, -1);
+      ctx.translate(-textCx, -textCy);
+
       if (useFill) {
         if (fillType === "linearGradient") {
           // Measure text to approximate bounding box for gradient
-          const metrics = ctx.measureText(draft.value);
-          const tw = metrics.width;
-          const th = textFontSize;
-          applyLinearGradient(ctx, draft.x, draft.y, tw, th, gradientConfig.stops, gradientConfig.angle);
+          applyLinearGradient(ctx, draft.x, draft.y, textW, textH, gradientConfig.stops, gradientConfig.angle);
         } else if (fillType === "radialGradient") {
-          const metrics = ctx.measureText(draft.value);
-          const tw = metrics.width;
-          const th = textFontSize;
-          applyRadialGradient(ctx, draft.x, draft.y, tw, th, gradientConfig.stops);
+          applyRadialGradient(ctx, draft.x, draft.y, textW, textH, gradientConfig.stops);
         } else {
           ctx.fillStyle = selectedColor;
         }
@@ -1947,7 +2002,7 @@ export function MvpEditor() {
       setStatus(`テキスト描画: "${draft.value}"`);
       setTextDraft(null);
     },
-    [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
+    [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
   );
 
   // ---------------------------------------------------------------------------
@@ -2017,6 +2072,15 @@ export function MvpEditor() {
       ctx.save();
       ctx.globalAlpha = opacity / 100;
       if (blendMode !== "normal") ctx.globalCompositeOperation = blendMode as GlobalCompositeOperation;
+
+      // S8: apply rotate + flip around shape bounding box center
+      const shapeCx = x + bw / 2;
+      const shapeCy = y + bh / 2;
+      ctx.translate(shapeCx, shapeCy);
+      if (draftRotateDeg !== 0) ctx.rotate((draftRotateDeg * Math.PI) / 180);
+      if (draftFlipX) ctx.scale(-1, 1);
+      if (draftFlipY) ctx.scale(1, -1);
+      ctx.translate(-shapeCx, -shapeCy);
 
       // S7: apply gradient fill if selected
       if (useFill && fillType !== "solid" && bw > 0 && bh > 0) {
@@ -2093,7 +2157,7 @@ export function MvpEditor() {
       addRecentColor(selectedColor);
       setStatus(`シェイプ描画: ${shapeKind}`);
     },
-    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
+    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
   );
 
   // ---------------------------------------------------------------------------
@@ -2105,10 +2169,11 @@ export function MvpEditor() {
       if (mode !== "shape" || spacePressed || !baseState.imageData) return;
       const coords = getCanvasCoords(e);
       if (!coords) return;
-      const { x, y } = coords;
-      shapeDraftRef.current = { startX: x, startY: y, endX: x, endY: y, active: true };
+      const sx = snapCoord(coords.x);
+      const sy = snapCoord(coords.y);
+      shapeDraftRef.current = { startX: sx, startY: sy, endX: sx, endY: sy, active: true };
     },
-    [mode, spacePressed, baseState, getCanvasCoords]
+    [mode, spacePressed, baseState, getCanvasCoords, snapCoord]
   );
 
   const handleShapeMouseMove = useCallback(
@@ -2116,7 +2181,8 @@ export function MvpEditor() {
       if (mode !== "shape" || !shapeDraftRef.current?.active || !baseState.imageData) return;
       const coords = getCanvasCoords(e);
       if (!coords) return;
-      let { x, y } = coords;
+      let x = snapCoord(coords.x);
+      let y = snapCoord(coords.y);
       const draft = shapeDraftRef.current;
 
       // Shift: constrain to square/circle
@@ -2132,7 +2198,7 @@ export function MvpEditor() {
       drawShapeOverlay(shapeDraftRef.current);
       triggerRedraw();
     },
-    [mode, baseState, getCanvasCoords, drawShapeOverlay, triggerRedraw]
+    [mode, baseState, getCanvasCoords, drawShapeOverlay, triggerRedraw, snapCoord]
   );
 
   const handleShapeMouseUp = useCallback(
@@ -2158,6 +2224,55 @@ export function MvpEditor() {
     },
     [regions, regionHistory, pushBakeSnapshot]
   );
+
+  // ---------------------------------------------------------------------------
+  // S8: Center-align draft helpers — reposition textDraft or shapeDraft to canvas center
+  // ---------------------------------------------------------------------------
+
+  const centerAlignDraftH = useCallback(() => {
+    if (!baseState.imageData) return;
+    const w = baseState.naturalWidth;
+    setTextDraft((d) => d ? { ...d, x: Math.round(w / 2) } : null);
+    if (shapeDraftRef.current) {
+      const draft = shapeDraftRef.current;
+      const bw = Math.abs(draft.endX - draft.startX);
+      const newStartX = Math.round((w - bw) / 2);
+      shapeDraftRef.current = { ...draft, startX: newStartX, endX: newStartX + bw };
+      drawShapeOverlay(shapeDraftRef.current);
+      triggerRedraw();
+    }
+  }, [baseState, drawShapeOverlay, triggerRedraw]);
+
+  const centerAlignDraftV = useCallback(() => {
+    if (!baseState.imageData) return;
+    const h = baseState.naturalHeight;
+    setTextDraft((d) => d ? { ...d, y: Math.round(h / 2) } : null);
+    if (shapeDraftRef.current) {
+      const draft = shapeDraftRef.current;
+      const bh = Math.abs(draft.endY - draft.startY);
+      const newStartY = Math.round((h - bh) / 2);
+      shapeDraftRef.current = { ...draft, startY: newStartY, endY: newStartY + bh };
+      drawShapeOverlay(shapeDraftRef.current);
+      triggerRedraw();
+    }
+  }, [baseState, drawShapeOverlay, triggerRedraw]);
+
+  const centerAlignDraftBoth = useCallback(() => {
+    if (!baseState.imageData) return;
+    const w = baseState.naturalWidth;
+    const h = baseState.naturalHeight;
+    setTextDraft((d) => d ? { ...d, x: Math.round(w / 2), y: Math.round(h / 2) } : null);
+    if (shapeDraftRef.current) {
+      const draft = shapeDraftRef.current;
+      const bw = Math.abs(draft.endX - draft.startX);
+      const bh = Math.abs(draft.endY - draft.startY);
+      const newStartX = Math.round((w - bw) / 2);
+      const newStartY = Math.round((h - bh) / 2);
+      shapeDraftRef.current = { ...draft, startX: newStartX, endX: newStartX + bw, startY: newStartY, endY: newStartY + bh };
+      drawShapeOverlay(shapeDraftRef.current);
+      triggerRedraw();
+    }
+  }, [baseState, drawShapeOverlay, triggerRedraw]);
 
   // ---------------------------------------------------------------------------
   // B-1: Clipboard paste (Ctrl+V)
@@ -2912,6 +3027,125 @@ export function MvpEditor() {
                 </div>
               )}
             </div>
+          </>
+        )}
+
+        {/* S8: Grid + Snap controls (always visible) */}
+        <div style={dividerStyle} />
+        <Tooltip label="グリッド表示">
+          <button
+            type="button"
+            onClick={() => setGridEnabled((v) => !v)}
+            style={gridEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+            aria-label="グリッド表示"
+            aria-pressed={gridEnabled}
+          >
+            <Grid3x3 size={16} />
+          </button>
+        </Tooltip>
+        {gridEnabled && (
+          <>
+            <span style={labelStyle}>間隔: {gridSize}</span>
+            <input
+              type="range"
+              min={5}
+              max={100}
+              step={5}
+              value={gridSize}
+              onChange={(e) => setGridSize(Number(e.target.value))}
+              style={{ width: 62 }}
+              title={`グリッド間隔: ${gridSize}px`}
+            />
+          </>
+        )}
+        <Tooltip label="スナップ">
+          <button
+            type="button"
+            onClick={() => setSnapEnabled((v) => !v)}
+            style={snapEnabled ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+            aria-label="スナップ"
+            aria-pressed={snapEnabled}
+          >
+            <Magnet size={16} />
+          </button>
+        </Tooltip>
+
+        {/* S8: Rotate + Flip — shape/text modes only */}
+        {(mode === "shape" || mode === "text") && (
+          <>
+            <div style={dividerStyle} />
+            <Tooltip label="回転角度">
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                <RotateCw size={14} style={{ color: T.color.textMuted, flexShrink: 0 }} />
+              </span>
+            </Tooltip>
+            <span style={labelStyle}>{draftRotateDeg}°</span>
+            <input
+              type="range"
+              min={-180}
+              max={180}
+              step={1}
+              value={draftRotateDeg}
+              onChange={(e) => setDraftRotateDeg(Number(e.target.value))}
+              style={{ width: 72 }}
+              title={`回転: ${draftRotateDeg}°`}
+            />
+            <Tooltip label="水平反転">
+              <button
+                type="button"
+                onClick={() => setDraftFlipX((v) => !v)}
+                style={draftFlipX ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+                aria-label="水平反転"
+                aria-pressed={draftFlipX}
+              >
+                <FlipHorizontal2 size={16} />
+              </button>
+            </Tooltip>
+            <Tooltip label="垂直反転">
+              <button
+                type="button"
+                onClick={() => setDraftFlipY((v) => !v)}
+                style={draftFlipY ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+                aria-label="垂直反転"
+                aria-pressed={draftFlipY}
+              >
+                <FlipVertical2 size={16} />
+              </button>
+            </Tooltip>
+            <div style={dividerStyle} />
+            <Tooltip label="水平中央揃え">
+              <button
+                type="button"
+                onClick={centerAlignDraftH}
+                disabled={!baseState.imageData}
+                style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+                aria-label="水平中央揃え"
+              >
+                <AlignCenterHorizontal size={16} />
+              </button>
+            </Tooltip>
+            <Tooltip label="垂直中央揃え">
+              <button
+                type="button"
+                onClick={centerAlignDraftV}
+                disabled={!baseState.imageData}
+                style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+                aria-label="垂直中央揃え"
+              >
+                <AlignCenterVertical size={16} />
+              </button>
+            </Tooltip>
+            <Tooltip label="画面中央">
+              <button
+                type="button"
+                onClick={centerAlignDraftBoth}
+                disabled={!baseState.imageData}
+                style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+                aria-label="画面中央"
+              >
+                <AlignCenter size={16} />
+              </button>
+            </Tooltip>
           </>
         )}
 

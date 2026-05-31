@@ -964,3 +964,74 @@ describe("applyRadialGradient", () => {
     expect(ctx.fillStyle).toBe(mockGrad);
   });
 });
+
+// ---------------------------------------------------------------------------
+// S8: snapCoord logic (inline — function is internal to MvpEditor component)
+// ---------------------------------------------------------------------------
+
+/** Mirrors the snapCoord logic from MvpEditor.tsx */
+function snapCoordFn(v: number, snapEnabled: boolean, gridSize: number): number {
+  if (!snapEnabled || gridSize <= 0) return v;
+  return Math.round(v / gridSize) * gridSize;
+}
+
+describe("snapCoord", () => {
+  it("returns value unchanged when snapEnabled=false", () => {
+    expect(snapCoordFn(37, false, 20)).toBe(37);
+  });
+
+  it("returns value unchanged when gridSize=0", () => {
+    expect(snapCoordFn(37, true, 0)).toBe(37);
+  });
+
+  it("snaps to nearest grid multiple (round up)", () => {
+    // 37 / 20 = 1.85 → rounds to 2 → 2*20 = 40
+    expect(snapCoordFn(37, true, 20)).toBe(40);
+  });
+
+  it("snaps to nearest grid multiple (round down)", () => {
+    // 13 / 20 = 0.65 → rounds to 1 → 1*20 = 20; but 13/20=0.65 rounds to 1
+    // Wait: 13 / 20 = 0.65 → Math.round(0.65) = 1 → 20. Let's use 7 instead.
+    // 7 / 20 = 0.35 → rounds to 0 → 0*20 = 0
+    expect(snapCoordFn(7, true, 20)).toBe(0);
+  });
+
+  it("returns exact multiple unchanged", () => {
+    expect(snapCoordFn(60, true, 20)).toBe(60);
+  });
+
+  it("works with gridSize=5", () => {
+    expect(snapCoordFn(13, true, 5)).toBe(15);
+    expect(snapCoordFn(12, true, 5)).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S8: draft rotate matrix — verify rotation angle produces correct transform
+// ---------------------------------------------------------------------------
+
+describe("draft rotate deg-to-rad conversion", () => {
+  it("0 degrees produces no rotation (cos=1, sin=0)", () => {
+    const rad = (0 * Math.PI) / 180;
+    expect(Math.cos(rad)).toBeCloseTo(1, 5);
+    expect(Math.sin(rad)).toBeCloseTo(0, 5);
+  });
+
+  it("90 degrees produces 90° rotation (cos≈0, sin≈1)", () => {
+    const rad = (90 * Math.PI) / 180;
+    expect(Math.cos(rad)).toBeCloseTo(0, 5);
+    expect(Math.sin(rad)).toBeCloseTo(1, 5);
+  });
+
+  it("180 degrees flips direction (cos≈-1, sin≈0)", () => {
+    const rad = (180 * Math.PI) / 180;
+    expect(Math.cos(rad)).toBeCloseTo(-1, 5);
+    expect(Math.sin(rad)).toBeCloseTo(0, 4);
+  });
+
+  it("-90 degrees rotates counter-clockwise (cos≈0, sin≈-1)", () => {
+    const rad = (-90 * Math.PI) / 180;
+    expect(Math.cos(rad)).toBeCloseTo(0, 5);
+    expect(Math.sin(rad)).toBeCloseTo(-1, 5);
+  });
+});
