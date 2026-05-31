@@ -91,6 +91,7 @@ import {
 import { T } from "./theme/tokens";
 import { useTheme } from "./hooks/useTheme";
 import { useLang, t } from "./lib/i18n";
+import { getImageProcessingWorker } from "../../worker/imageProcessingWorker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1666,16 +1667,40 @@ export function MvpEditor() {
   // Export handlers
   // ---------------------------------------------------------------------------
 
-  const handleExportSvg = useCallback(() => {
+  const handleExportSvg = useCallback(async () => {
     if (!baseState.imageData) return;
-    let usedFallback = false;
-    const svgString = buildSvg(
-      baseState.imageData,
-      regions,
-      baseState.naturalWidth,
-      baseState.naturalHeight,
-      () => { usedFallback = true; }
-    );
+
+    // Transfer raw pixel data to the Worker to avoid ImageData serialization
+    // issues across thread boundaries. Uint8Array is used (not Uint8ClampedArray)
+    // to avoid SharedArrayBuffer type conflicts in the Worker API signature.
+    // The copy is intentional — the source imageData must remain intact.
+    const rgba = new Uint8Array(baseState.imageData.data.buffer);
+    let svgString: string;
+    let usedFallback: boolean;
+    try {
+      const worker = getImageProcessingWorker();
+      const result = await worker.buildSvg(
+        rgba,
+        baseState.naturalWidth,
+        baseState.naturalHeight,
+        regions
+      );
+      svgString = result.svg;
+      usedFallback = result.usedFallback;
+    } catch {
+      // Worker unavailable (e.g. test / non-module environment): fall back to
+      // synchronous execution on the main thread.
+      let syncFallback = false;
+      svgString = buildSvg(
+        baseState.imageData,
+        regions,
+        baseState.naturalWidth,
+        baseState.naturalHeight,
+        () => { syncFallback = true; }
+      );
+      usedFallback = syncFallback;
+    }
+
     const blob = new Blob([svgString], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
