@@ -269,6 +269,7 @@ export function MvpEditor() {
   const strokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [mode, setMode] = useState<EditorMode>("color");
+  const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_COLOR);
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
   const [brushSize, setBrushSize] = useState(DEFAULT_BRUSH_SIZE);
@@ -2833,7 +2834,10 @@ export function MvpEditor() {
               type="button"
               aria-pressed={mode === "color"}
               onClick={() => setMode("color")}
-              style={mode === "color" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("color")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...(mode === "color" ? leftToolBtnActiveStyle : leftToolBtnStyle), transform: pressedBtn === "color" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("tool.color", lang)}
             >
               <PaintBucket size={18} />
@@ -2844,7 +2848,10 @@ export function MvpEditor() {
               type="button"
               aria-pressed={mode === "transparent"}
               onClick={() => setMode("transparent")}
-              style={mode === "transparent" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("transparent")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...(mode === "transparent" ? leftToolBtnActiveStyle : leftToolBtnStyle), transform: pressedBtn === "transparent" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("tool.transparent", lang)}
             >
               <Eraser size={18} />
@@ -2855,7 +2862,10 @@ export function MvpEditor() {
               type="button"
               aria-pressed={mode === "eyedropper"}
               onClick={() => setMode("eyedropper")}
-              style={mode === "eyedropper" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("eyedropper")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...(mode === "eyedropper" ? leftToolBtnActiveStyle : leftToolBtnStyle), transform: pressedBtn === "eyedropper" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("tool.eyedropper", lang)}
             >
               <Pipette size={18} />
@@ -2866,7 +2876,10 @@ export function MvpEditor() {
               type="button"
               aria-pressed={mode === "replace-all"}
               onClick={() => setMode("replace-all")}
-              style={mode === "replace-all" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("replace-all")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...(mode === "replace-all" ? leftToolBtnActiveStyle : leftToolBtnStyle), transform: pressedBtn === "replace-all" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("tool.replaceAll", lang)}
             >
               <Replace size={18} />
@@ -2877,7 +2890,10 @@ export function MvpEditor() {
               type="button"
               aria-pressed={mode === "brush"}
               onClick={() => setMode("brush")}
-              style={mode === "brush" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("brush")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...(mode === "brush" ? leftToolBtnActiveStyle : leftToolBtnStyle), transform: pressedBtn === "brush" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("tool.brush", lang)}
             >
               <Paintbrush size={18} />
@@ -2888,7 +2904,10 @@ export function MvpEditor() {
               type="button"
               aria-pressed={mode === "text"}
               onClick={() => setMode("text")}
-              style={mode === "text" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("text")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...(mode === "text" ? leftToolBtnActiveStyle : leftToolBtnStyle), transform: pressedBtn === "text" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("tool.text", lang)}
             >
               <Type size={18} />
@@ -2899,7 +2918,10 @@ export function MvpEditor() {
               type="button"
               aria-pressed={mode === "shape"}
               onClick={() => setMode("shape")}
-              style={mode === "shape" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("shape")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...(mode === "shape" ? leftToolBtnActiveStyle : leftToolBtnStyle), transform: pressedBtn === "shape" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("tool.shape", lang)}
             >
               <Square size={18} />
@@ -2910,7 +2932,10 @@ export function MvpEditor() {
             <button
               type="button"
               onClick={() => setSettingsModalOpen(true)}
-              style={{ ...leftToolBtnStyle, marginTop: "auto" }}
+              onMouseDown={() => setPressedBtn("settings")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...leftToolBtnStyle, marginTop: "auto", transform: pressedBtn === "settings" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("label.settings", lang)}
             >
               <Settings size={18} />
@@ -2920,7 +2945,10 @@ export function MvpEditor() {
             <button
               type="button"
               onClick={toggleTheme}
-              style={leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("theme")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...leftToolBtnStyle, transform: pressedBtn === "theme" ? "scale(0.92)" : "scale(1)" }}
               aria-label={themeMode === "dark" ? "ライトテーマに切替" : "ダークテーマに切替"}
               aria-pressed={themeMode === "light"}
             >
@@ -2934,7 +2962,10 @@ export function MvpEditor() {
                 x: Math.max(8, window.innerWidth / 2 - 130),
                 y: Math.max(8, window.innerHeight / 2 - 120),
               })}
-              style={leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("help")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...leftToolBtnStyle, transform: pressedBtn === "help" ? "scale(0.92)" : "scale(1)" }}
               aria-label="キーボードショートカット一覧を開く"
             >
               <HelpCircle size={18} />
@@ -2944,7 +2975,10 @@ export function MvpEditor() {
             <button
               type="button"
               onClick={() => setShowWelcome(true)}
-              style={leftToolBtnStyle}
+              onMouseDown={() => setPressedBtn("welcome")}
+              onMouseUp={() => setPressedBtn(null)}
+              onMouseLeave={() => setPressedBtn(null)}
+              style={{ ...leftToolBtnStyle, transform: pressedBtn === "welcome" ? "scale(0.92)" : "scale(1)" }}
               aria-label={t("welcome.reshow", lang)}
             >
               <span style={welcomeReshowIconStyle}>?</span>
@@ -3796,7 +3830,7 @@ const leftToolBtnStyle: React.CSSProperties = {
   border: "none",
   borderRadius: T.radius.md,
   cursor: "pointer",
-  transition: "background 120ms, color 120ms",
+  transition: "background 120ms, color 120ms, transform 80ms",
   flexShrink: 0,
 };
 
