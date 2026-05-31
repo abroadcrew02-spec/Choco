@@ -1997,6 +1997,7 @@ export function MvpEditor() {
               type="button"
               onClick={handleSaveProject}
               disabled={!baseState.imageData}
+              aria-disabled={!baseState.imageData}
               style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
               aria-label={t("label.saveProject", lang)}
             >
@@ -2122,6 +2123,7 @@ export function MvpEditor() {
               type="button"
               onClick={() => { editorHistory.undo(); triggerRedraw(); setStatus(t("status.undo", lang)); }}
               disabled={!editorHistory.canUndo}
+              aria-disabled={!editorHistory.canUndo}
               style={!editorHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
               aria-label={t("label.undo", lang)}
             >
@@ -3509,6 +3511,7 @@ export function MvpEditor() {
           naturalHeight={baseState.naturalHeight}
           onExport={handleExport}
           onClose={() => setExportModalOpen(false)}
+          lang={lang}
         />
       )}
 

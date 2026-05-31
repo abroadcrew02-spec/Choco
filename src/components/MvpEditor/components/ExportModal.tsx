@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { t, type Lang } from "../lib/i18n";
 
 // ---------------------------------------------------------------------------
 // ExportModal — Image export with format + resolution selection
@@ -57,6 +58,7 @@ interface ExportModalProps {
   naturalHeight: number;
   onExport: (options: ExportOptions) => void;
   onClose: () => void;
+  lang: Lang;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,7 @@ export function ExportModal({
   naturalHeight,
   onExport,
   onClose,
+  lang,
 }: ExportModalProps) {
   const [format, setFormat] = useState<ExportFormat>("png");
   const [scale, setScale] = useState<ScalePreset>("1x");
@@ -413,7 +416,7 @@ export function ExportModal({
               value={quality}
               onChange={(e) => setQuality(Number(e.target.value))}
               style={{ width: "100%", accentColor: T.color.accent }}
-              aria-label="JPEG quality"
+              aria-label={t("aria.jpegQuality", lang)}
               aria-valuetext={String(quality)}
             />
           </div>
