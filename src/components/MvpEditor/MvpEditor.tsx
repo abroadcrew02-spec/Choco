@@ -111,7 +111,7 @@ function saveBrandSwatches(swatches: string[]): void {
 
 const DEFAULT_COLOR = "#ff0000";
 const DEFAULT_TOLERANCE = 32;
-const SVG_TARGET_LONG_EDGE = 2048;
+const SVG_TARGET_LONG_EDGE = 4096;
 const ACCEPTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg", ".gif"];
 const PALETTE_BUCKETS = 32; // quantization step per channel
 
@@ -454,6 +454,76 @@ function imageDataToPngDataUrl(imageData: ImageData, scale = 1): string {
  * The algorithm pads each pixel by one unit so adjacent pixels merge into
  * filled rectangles rather than individual 1×1 squares.
  */
+
+/**
+ * Removes collinear (same-direction) intermediate points from a polygon.
+ * Consecutive points that lie on the same horizontal or vertical line are
+ * collapsed to their endpoints, eliminating redundant vertices produced by
+ * the axis-aligned marching squares trace.
+ */
+export function removeCollinear(
+  points: { x: number; y: number }[]
+): { x: number; y: number }[] {
+  if (points.length <= 2) return points;
+  const result: { x: number; y: number }[] = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = result[result.length - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+    // Keep the point only if it is NOT collinear with its neighbours.
+    // Two vectors are collinear when their cross product is zero.
+    const crossZ = (curr.x - prev.x) * (next.y - prev.y) - (curr.y - prev.y) * (next.x - prev.x);
+    if (crossZ !== 0) result.push(curr);
+  }
+  result.push(points[points.length - 1]);
+  return result;
+}
+
+/**
+ * Douglas-Peucker polyline simplification.
+ * Reduces vertex count while preserving the overall shape to within epsilon
+ * pixels of perpendicular distance.
+ */
+export function simplifyPath(
+  points: { x: number; y: number }[],
+  epsilon: number
+): { x: number; y: number }[] {
+  if (points.length <= 2) return points;
+
+  // Find the point with the maximum perpendicular distance from the line
+  // connecting the first and last points.
+  let maxDist = 0;
+  let maxIdx = 0;
+  const start = points[0];
+  const end = points[points.length - 1];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lineLen = Math.hypot(dx, dy);
+
+  for (let i = 1; i < points.length - 1; i++) {
+    let dist: number;
+    if (lineLen === 0) {
+      dist = Math.hypot(points[i].x - start.x, points[i].y - start.y);
+    } else {
+      // Perpendicular distance = |cross product| / line length
+      const cross = Math.abs(dx * (start.y - points[i].y) - (start.x - points[i].x) * dy);
+      dist = cross / lineLen;
+    }
+    if (dist > maxDist) {
+      maxDist = dist;
+      maxIdx = i;
+    }
+  }
+
+  if (maxDist > epsilon) {
+    const left = simplifyPath(points.slice(0, maxIdx + 1), epsilon);
+    const right = simplifyPath(points.slice(maxIdx), epsilon);
+    // Concatenate, removing the duplicate point at the junction.
+    return left.slice(0, -1).concat(right);
+  }
+  return [start, end];
+}
+
 export function marchingSquaresPath(pixels: { x: number; y: number }[]): string {
   if (pixels.length === 0) return "";
 
@@ -544,7 +614,10 @@ export function marchingSquaresPath(pixels: { x: number; y: number }[]): string 
     }
 
     if (loopPoints.length >= 2) {
-      const d = loopPoints
+      // Smooth the polygon: remove collinear vertices first, then
+      // apply Douglas-Peucker to reduce staircase artifacts.
+      const smoothed = simplifyPath(removeCollinear(loopPoints), 0.5);
+      const d = smoothed
         .map((p, i) => `${i === 0 ? "M" : "L"}${p.x} ${p.y}`)
         .join(" ");
       pathParts.push(loopClosed ? d + " Z" : d);

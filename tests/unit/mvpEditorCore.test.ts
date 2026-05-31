@@ -21,6 +21,8 @@ import {
   smoothReplaceAll,
   closeMask,
   blurMask,
+  removeCollinear,
+  simplifyPath,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 import { hsv2rgb, rgb2hsv } from "../../src/components/MvpEditor/components/HsvPicker";
@@ -643,6 +645,76 @@ describe("rgb2hsv", () => {
     const result = rgb2hsv(255, 255, 255);
     expect(result.s).toBeCloseTo(0, 3);
     expect(result.v).toBeCloseTo(1, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// removeCollinear
+// ---------------------------------------------------------------------------
+
+describe("removeCollinear", () => {
+  it("keeps endpoints and corner points, removes collinear intermediates", () => {
+    // Horizontal run: (0,0)→(1,0)→(2,0)→(3,0) — middle two are collinear
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 3, y: 0 },
+    ];
+    const result = removeCollinear(pts);
+    expect(result).toEqual([{ x: 0, y: 0 }, { x: 3, y: 0 }]);
+  });
+
+  it("keeps all points when each is a corner", () => {
+    // L-shape: right then down — every interior point is a corner
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 3, y: 0 },
+      { x: 3, y: 3 },
+    ];
+    const result = removeCollinear(pts);
+    expect(result).toEqual(pts);
+  });
+
+  it("returns input unchanged for 2 or fewer points", () => {
+    expect(removeCollinear([{ x: 0, y: 0 }, { x: 1, y: 1 }])).toHaveLength(2);
+    expect(removeCollinear([{ x: 0, y: 0 }])).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// simplifyPath (Douglas-Peucker)
+// ---------------------------------------------------------------------------
+
+describe("simplifyPath", () => {
+  it("collapses a nearly-straight run to two endpoints", () => {
+    // Five points along a slightly wobbly horizontal line (max deviation 0.3)
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0.1 },
+      { x: 2, y: 0.3 },
+      { x: 3, y: 0.1 },
+      { x: 4, y: 0 },
+    ];
+    const result = simplifyPath(pts, 0.5);
+    expect(result).toEqual([{ x: 0, y: 0 }, { x: 4, y: 0 }]);
+  });
+
+  it("preserves a sharp corner under tight epsilon", () => {
+    // Right angle: (0,0)→(5,0)→(5,5). Corner is 5px away from diagonal.
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 5, y: 5 },
+    ];
+    const result = simplifyPath(pts, 0.5);
+    // All three points should be kept
+    expect(result).toHaveLength(3);
+  });
+
+  it("returns input unchanged for 2 or fewer points", () => {
+    expect(simplifyPath([{ x: 0, y: 0 }, { x: 1, y: 1 }], 0.5)).toHaveLength(2);
+    expect(simplifyPath([{ x: 0, y: 0 }], 0.5)).toHaveLength(1);
   });
 });
 
