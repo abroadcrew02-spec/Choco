@@ -24,7 +24,16 @@ import {
   AlignCenterHorizontal,
   AlignCenterVertical,
   AlignCenter,
+  Save,
+  FolderInput,
 } from "lucide-react";
+import {
+  serializeProject,
+  deserializeProject,
+  downloadChocoFile,
+  openChocoFile,
+} from "./lib/projectIO";
+import { useAutoSave } from "./hooks/useAutoSave";
 import {
   GradientEditor,
   type FillType,
@@ -1278,6 +1287,9 @@ export function MvpEditor() {
   const [gradientConfig, setGradientConfig] = useState<GradientConfig>(DEFAULT_GRADIENT_CONFIG);
   const [gradientEditorOpen, setGradientEditorOpen] = useState<boolean>(false);
 
+  // Issue #5: autosave restore modal
+  const [showRestoreModal, setShowRestoreModal] = useState<boolean>(false);
+
   // S8: grid / snap
   const [gridEnabled, setGridEnabled] = useState<boolean>(false);
   const [snapEnabled, setSnapEnabled] = useState<boolean>(false);
@@ -1289,6 +1301,36 @@ export function MvpEditor() {
   const [draftFlipY, setDraftFlipY] = useState<boolean>(false);
 
   const zoom = useZoomPan(spacePressed);
+
+  // ---------------------------------------------------------------------------
+  // Issue #5: AutoSave
+  // ---------------------------------------------------------------------------
+
+  const getAutoSaveState = useCallback(() => {
+    if (!baseState.imageData) return null;
+    return {
+      imageData: baseState.imageData,
+      naturalWidth: baseState.naturalWidth,
+      naturalHeight: baseState.naturalHeight,
+      regions,
+      bakeLayer: bakeLayerRef.current,
+      selectedColor,
+      tolerance,
+    };
+  }, [baseState, regions, selectedColor, tolerance]);
+
+  const autoSave = useAutoSave(getAutoSaveState, !!baseState.imageData, {
+    onSave: () => setStatus("自動保存しました"),
+    onError: () => setStatus("自動保存に失敗しました (容量不足の可能性)"),
+  });
+
+  // On mount: check for autosave and show restore modal if found
+  useEffect(() => {
+    if (autoSave.hasAutoSave()) {
+      setShowRestoreModal(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------------------------------------------------------------------------
   // S3: Toast helper
@@ -2465,6 +2507,104 @@ export function MvpEditor() {
   }, [zoom, baseState.naturalWidth, baseState.naturalHeight]);
 
   // ---------------------------------------------------------------------------
+  // Issue #5: Project save / load
+  // ---------------------------------------------------------------------------
+
+  const handleSaveProject = useCallback(() => {
+    if (!baseState.imageData) return;
+    try {
+      const project = serializeProject({
+        imageData: baseState.imageData,
+        naturalWidth: baseState.naturalWidth,
+        naturalHeight: baseState.naturalHeight,
+        regions,
+        bakeLayer: bakeLayerRef.current,
+        selectedColor,
+        tolerance,
+      });
+      downloadChocoFile(project);
+      autoSave.clearAutoSave();
+      setStatus("プロジェクトを保存しました (.choco)");
+      showToast("プロジェクトを保存しました (.choco)");
+    } catch (err) {
+      setStatus("プロジェクトの保存に失敗しました");
+      showToast("プロジェクトの保存に失敗しました", "error");
+      console.error("[handleSaveProject]", err);
+    }
+  }, [baseState, regions, selectedColor, tolerance, autoSave, showToast]);
+
+  const handleLoadProject = useCallback(async () => {
+    try {
+      const raw = await openChocoFile();
+      const state = await deserializeProject(raw);
+      setBaseState({
+        imageData: state.imageData,
+        naturalWidth: state.naturalWidth,
+        naturalHeight: state.naturalHeight,
+      });
+      editorHistory.reset();
+      // Restore regions via history so undo works correctly
+      editorHistory.push(state.regions, state.bakeLayer ?? null);
+      bakeLayerRef.current = state.bakeLayer;
+      setSelectedColor(state.selectedColor);
+      setTolerance(state.tolerance);
+      setPalette(extractPaletteColors(state.imageData, 8));
+      setStatus("プロジェクトを読み込みました");
+      showToast("プロジェクトを読み込みました");
+      tryFitContainer(state.naturalWidth, state.naturalHeight);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "不明なエラー";
+      setStatus("読込失敗: " + msg);
+      showToast("プロジェクトの読込に失敗しました", "error");
+      console.error("[handleLoadProject]", err);
+    }
+  }, [editorHistory, showToast, tryFitContainer]);
+
+  const handleRestoreAutoSave = useCallback(async () => {
+    setShowRestoreModal(false);
+    try {
+      const state = await autoSave.loadAutoSave();
+      if (!state) {
+        setStatus("前回の編集が見つかりませんでした");
+        return;
+      }
+      setBaseState({
+        imageData: state.imageData,
+        naturalWidth: state.naturalWidth,
+        naturalHeight: state.naturalHeight,
+      });
+      editorHistory.reset();
+      editorHistory.push(state.regions, state.bakeLayer ?? null);
+      bakeLayerRef.current = state.bakeLayer;
+      setSelectedColor(state.selectedColor);
+      setTolerance(state.tolerance);
+      setPalette(extractPaletteColors(state.imageData, 8));
+      setStatus("前回の編集を復元しました");
+      showToast("前回の編集を復元しました");
+      tryFitContainer(state.naturalWidth, state.naturalHeight);
+    } catch (err) {
+      setStatus("復元に失敗しました");
+      showToast("復元に失敗しました", "error");
+      console.error("[handleRestoreAutoSave]", err);
+    }
+  }, [autoSave, editorHistory, showToast, tryFitContainer]);
+
+  // Issue #5: Ctrl+S / Ctrl+O global shortcuts (defined after handlers to avoid forward ref)
+  useEffect(() => {
+    const handleProjectShortcut = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "s") {
+        e.preventDefault();
+        handleSaveProject();
+      } else if (e.ctrlKey && e.key === "o") {
+        e.preventDefault();
+        handleLoadProject();
+      }
+    };
+    window.addEventListener("keydown", handleProjectShortcut);
+    return () => window.removeEventListener("keydown", handleProjectShortcut);
+  }, [handleSaveProject, handleLoadProject]);
+
+  // ---------------------------------------------------------------------------
   // Derived values
   // ---------------------------------------------------------------------------
 
@@ -2548,6 +2688,31 @@ export function MvpEditor() {
           style={{ display: "none" }}
           onChange={handleFileChange}
         />
+
+        {/* Issue #5: Project save */}
+        <Tooltip label="プロジェクト保存 (.choco)" shortcut="Ctrl+S">
+          <button
+            type="button"
+            onClick={handleSaveProject}
+            disabled={!baseState.imageData}
+            style={!baseState.imageData ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            aria-label="プロジェクト保存"
+          >
+            <Save size={16} />
+          </button>
+        </Tooltip>
+
+        {/* Issue #5: Project load */}
+        <Tooltip label="プロジェクト読込 (.choco)" shortcut="Ctrl+O">
+          <button
+            type="button"
+            onClick={handleLoadProject}
+            style={iconBtnStyle}
+            aria-label="プロジェクト読込"
+          >
+            <FolderInput size={16} />
+          </button>
+        </Tooltip>
 
         <div style={dividerStyle} />
 
@@ -3742,6 +3907,36 @@ export function MvpEditor() {
         )}
       </div>
 
+      {/* Issue #5: Autosave restore modal */}
+      {showRestoreModal && (
+        <div style={restoreModalOverlayStyle}>
+          <div style={restoreModalBoxStyle}>
+            <p style={restoreModalTextStyle}>
+              前回の編集データが見つかりました。復元しますか？
+            </p>
+            <div style={restoreModalActionsStyle}>
+              <button
+                type="button"
+                onClick={() => {
+                  autoSave.clearAutoSave();
+                  setShowRestoreModal(false);
+                }}
+                style={btnSubtleStyle}
+              >
+                破棄
+              </button>
+              <button
+                type="button"
+                onClick={handleRestoreAutoSave}
+                style={btnAccentStyle}
+              >
+                復元する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* S3: Toast notification */}
       <Toast
         toast={currentToast}
@@ -4066,6 +4261,52 @@ const swatchGridStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: T.space.xs,
+};
+
+// Issue #5: Autosave restore modal styles
+const restoreModalOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.6)",
+  zIndex: 9999,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const restoreModalBoxStyle: React.CSSProperties = {
+  background: T.color.bgPanel,
+  border: `1px solid ${T.color.borderMid}`,
+  borderRadius: T.radius.lg,
+  padding: `${T.space.xl}px`,
+  maxWidth: 360,
+  width: "90%",
+  boxShadow: T.shadow.elevated,
+  fontFamily: T.font.family,
+  color: T.color.textPrimary,
+};
+
+const restoreModalTextStyle: React.CSSProperties = {
+  margin: "0 0 16px",
+  fontSize: T.font.body,
+};
+
+const restoreModalActionsStyle: React.CSSProperties = {
+  display: "flex",
+  gap: T.space.sm,
+  justifyContent: "flex-end",
+};
+
+const btnAccentStyle: React.CSSProperties = {
+  padding: "3px 10px",
+  background: T.color.accent,
+  color: "#fff",
+  border: `1px solid ${T.color.accent}`,
+  borderRadius: T.radius.sm,
+  cursor: "pointer",
+  fontSize: T.font.label,
+  fontFamily: T.font.family,
+  transition: "background 120ms",
 };
 
 const bottomStatusBarStyle: React.CSSProperties = {
