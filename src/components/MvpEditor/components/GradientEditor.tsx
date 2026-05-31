@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { T } from "../theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Types (exported for use in MvpEditor)
@@ -16,26 +17,6 @@ export interface GradientConfig {
   /** Linear gradient angle in degrees (0 = top→bottom, 90 = left→right) */
   angle: number;
 }
-
-// ---------------------------------------------------------------------------
-// Token subset (keep in sync with parent)
-// ---------------------------------------------------------------------------
-
-const TC = {
-  bgPanel:    "#1c1c1c",
-  bgElevated: "#242424",
-  border:     "rgba(255,255,255,0.08)",
-  borderMid:  "rgba(255,255,255,0.14)",
-  textPrimary:"#e8e8e8",
-  textMuted:  "#888",
-  textDim:    "#666",
-  accent:     "#4f8ef7",
-  danger:     "#e05555",
-  dangerDark: "#7a1a1a",
-  font:  { family: "'Inter','Noto Sans JP',system-ui,sans-serif", label: 11, badge: 10 },
-  space: { xs: 4, sm: 8 },
-  radius: { sm: 4, md: 6 },
-} as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -184,27 +165,27 @@ export function GradientEditor({
   return (
     <div
       style={{
-        background: TC.bgPanel,
-        border: `1px solid ${TC.borderMid}`,
-        borderRadius: TC.radius.md,
-        padding: TC.space.sm,
+        background: T.color.bgPanel,
+        border: `1px solid ${T.color.borderMid}`,
+        borderRadius: T.radius.md,
+        padding: T.space.sm,
         width: 220,
         boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
-        fontFamily: TC.font.family,
-        fontSize: TC.font.label,
-        color: TC.textPrimary,
+        fontFamily: T.font.family,
+        fontSize: T.font.label,
+        color: T.color.textPrimary,
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: TC.space.sm }}>
-        <span style={{ fontSize: TC.font.label, color: TC.textMuted }}>塗り種別</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: T.space.sm }}>
+        <span style={{ fontSize: T.font.label, color: T.color.textMuted }}>塗り種別</span>
         <button
           type="button"
           onClick={onClose}
           style={{
             background: "none",
             border: "none",
-            color: TC.textMuted,
+            color: T.color.textMuted,
             cursor: "pointer",
             fontSize: 14,
             lineHeight: 1,
@@ -217,7 +198,7 @@ export function GradientEditor({
       </div>
 
       {/* Fill type selector */}
-      <div style={{ display: "flex", gap: TC.space.xs, marginBottom: TC.space.sm }}>
+      <div style={{ display: "flex", gap: T.space.xs, marginBottom: T.space.sm }}>
         {(["solid", "linearGradient", "radialGradient"] as FillType[]).map((ft) => (
           <button
             key={ft}
@@ -226,16 +207,16 @@ export function GradientEditor({
             style={{
               flex: 1,
               padding: "3px 4px",
-              background: fillType === ft ? TC.accent : TC.bgElevated,
-              color: fillType === ft ? "#fff" : TC.textMuted,
-              border: `1px solid ${fillType === ft ? TC.accent : TC.borderMid}`,
-              borderRadius: TC.radius.sm,
+              background: fillType === ft ? T.color.accent : T.color.bgElevated,
+              color: fillType === ft ? "#fff" : T.color.textMuted,
+              border: `1px solid ${fillType === ft ? T.color.accent : T.color.borderMid}`,
+              borderRadius: T.radius.sm,
               cursor: "pointer",
-              fontSize: TC.font.badge,
-              fontFamily: TC.font.family,
+              fontSize: T.font.badge,
+              fontFamily: T.font.family,
             }}
           >
-            {ft === "solid" ? "単色" : ft === "linearGradient" ? "線形" : "円形"}
+            {ft === "solid" ? "単色" : ft === "linearGradient" ? "線形" : "冁E��"}
           </button>
         ))}
       </div>
@@ -245,18 +226,18 @@ export function GradientEditor({
         <div
           style={{
             height: 20,
-            borderRadius: TC.radius.sm,
+            borderRadius: T.radius.sm,
             background: previewGradient,
-            border: `1px solid ${TC.borderMid}`,
-            marginBottom: TC.space.sm,
+            border: `1px solid ${T.color.borderMid}`,
+            marginBottom: T.space.sm,
           }}
         />
       )}
 
-      {/* Angle control — linear only */}
+      {/* Angle control  Elinear only */}
       {fillType === "linearGradient" && (
-        <div style={{ display: "flex", alignItems: "center", gap: TC.space.xs, marginBottom: TC.space.sm }}>
-          <span style={{ color: TC.textMuted, fontSize: TC.font.label, width: 52, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: T.space.xs, marginBottom: T.space.sm }}>
+          <span style={{ color: T.color.textMuted, fontSize: T.font.label, width: 52, flexShrink: 0 }}>
             角度: {gradientConfig.angle}°
           </span>
           <input
@@ -268,7 +249,7 @@ export function GradientEditor({
               onGradientConfigChange({ ...gradientConfig, angle: Number(e.target.value) })
             }
             style={{ flex: 1 }}
-            title="グラデーション角度 (0-360°)"
+            title="グラチE�Eション角度 (0-360°)"
           />
         </div>
       )}
@@ -276,8 +257,8 @@ export function GradientEditor({
       {/* Stops list */}
       {fillType !== "solid" && (
         <div>
-          <div style={{ color: TC.textDim, fontSize: TC.font.badge, marginBottom: TC.space.xs }}>
-            色ストップ ({stops.length})
+          <div style={{ color: T.color.textDim, fontSize: T.font.badge, marginBottom: T.space.xs }}>
+            色ストッチE({stops.length})
           </div>
           {stops.map((stop, idx) => (
             <div
@@ -285,7 +266,7 @@ export function GradientEditor({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: TC.space.xs,
+                gap: T.space.xs,
                 marginBottom: 4,
               }}
             >
@@ -297,15 +278,15 @@ export function GradientEditor({
                 style={{
                   width: 22,
                   height: 22,
-                  border: `1px solid ${TC.borderMid}`,
-                  borderRadius: TC.radius.sm,
+                  border: `1px solid ${T.color.borderMid}`,
+                  borderRadius: T.radius.sm,
                   padding: 0,
                   cursor: "pointer",
                   background: "none",
                   outline: "none",
                   flexShrink: 0,
                 }}
-                title={`ストップ ${idx + 1} の色`}
+                title={`ストッチE${idx + 1} の色`}
               />
               {/* Position slider */}
               <input
@@ -318,7 +299,7 @@ export function GradientEditor({
                 style={{ flex: 1 }}
                 title={`位置: ${Math.round(stop.position * 100)}%`}
               />
-              <span style={{ color: TC.textDim, fontSize: TC.font.badge, width: 28, textAlign: "right", flexShrink: 0 }}>
+              <span style={{ color: T.color.textDim, fontSize: T.font.badge, width: 28, textAlign: "right", flexShrink: 0 }}>
                 {Math.round(stop.position * 100)}%
               </span>
               {/* Remove */}
@@ -327,15 +308,15 @@ export function GradientEditor({
                 onClick={() => removeStop(idx)}
                 disabled={stops.length <= 2}
                 style={{
-                  background: stops.length <= 2 ? "transparent" : TC.dangerDark,
-                  color: stops.length <= 2 ? TC.textDim : TC.danger,
+                  background: stops.length <= 2 ? "transparent" : T.color.dangerDark,
+                  color: stops.length <= 2 ? T.color.textDim : T.color.danger,
                   border: "none",
-                  borderRadius: TC.radius.sm,
+                  borderRadius: T.radius.sm,
                   cursor: stops.length <= 2 ? "default" : "pointer",
-                  fontSize: TC.font.badge,
+                  fontSize: T.font.badge,
                   padding: "1px 4px",
                   flexShrink: 0,
-                  fontFamily: TC.font.family,
+                  fontFamily: T.font.family,
                 }}
                 title="ストップを削除"
               >
@@ -348,15 +329,15 @@ export function GradientEditor({
             onClick={addStop}
             style={{
               width: "100%",
-              marginTop: TC.space.xs,
+              marginTop: T.space.xs,
               padding: "2px 6px",
-              background: TC.bgElevated,
-              color: TC.textMuted,
-              border: `1px solid ${TC.borderMid}`,
-              borderRadius: TC.radius.sm,
+              background: T.color.bgElevated,
+              color: T.color.textMuted,
+              border: `1px solid ${T.color.borderMid}`,
+              borderRadius: T.radius.sm,
               cursor: "pointer",
-              fontSize: TC.font.badge,
-              fontFamily: TC.font.family,
+              fontSize: T.font.badge,
+              fontFamily: T.font.family,
             }}
             title="色ストップを追加"
           >
