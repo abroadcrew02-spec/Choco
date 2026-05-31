@@ -2392,3 +2392,57 @@ describe("getCanvasCoords logic (Issue #38: zoom/pan correctness)", () => {
     expect(result).toEqual({ x: 21, y: 21 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #47: buildSvg — hex color validation in fill attribute
+// ---------------------------------------------------------------------------
+
+describe("Issue #47: buildSvg hex color validation", () => {
+  function setupCanvasMock() {
+    const mockCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => mockCtx),
+      toDataURL: vi.fn(() => "data:image/png;base64,MOCK"),
+    };
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "canvas") return mockCanvas as unknown as HTMLCanvasElement;
+      return origCreate(tag);
+    });
+  }
+
+  it("valid hex color is preserved as-is in the fill attribute", () => {
+    setupCanvasMock();
+    const imageData = makeSolidImageData(2, 2, 100, 100, 100);
+    const region: PaintRegion = {
+      id: "c1",
+      pixels: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+      color: "#3a7bff",
+      transparent: false,
+    };
+    const svg = buildSvg(imageData, [region], 2, 2);
+    expect(svg).toContain('fill="#3a7bff"');
+    vi.restoreAllMocks();
+  });
+
+  it("invalid color value is replaced with #000000 fallback in the fill attribute", () => {
+    setupCanvasMock();
+    const imageData = makeSolidImageData(2, 2, 100, 100, 100);
+    const region: PaintRegion = {
+      id: "c2",
+      pixels: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+      color: "javascript:alert(1)",
+      transparent: false,
+    };
+    const svg = buildSvg(imageData, [region], 2, 2);
+    expect(svg).not.toContain("javascript:alert(1)");
+    expect(svg).toContain('fill="#000000"');
+    vi.restoreAllMocks();
+  });
+});

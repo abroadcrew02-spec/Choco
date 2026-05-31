@@ -677,12 +677,15 @@ export function buildSvg(
       ? `  <image href="${baseDataUrl}" width="${width}" height="${height}" mask="url(#transparentMask)" />`
       : `  <image href="${baseDataUrl}" width="${width}" height="${height}" />`;
 
+  const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
   const colorElements = regions
     .filter((r) => !r.transparent && r.pixels.length > 0)
     .map((region) => {
       const d = marchingSquaresPath(region.pixels, onFallback);
       if (!d) return "";
-      return `  <path d="${d}" fill="${region.color}" fill-rule="evenodd" />`;
+      const safeColor = HEX_COLOR_RE.test(region.color) ? region.color : "#000000";
+      return `  <path d="${d}" fill="${safeColor}" fill-rule="evenodd" />`;
     })
     .filter(Boolean)
     .join("\n");
