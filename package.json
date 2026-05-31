@@ -10,6 +10,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
     "lint": "eslint src --ext .ts,.tsx",
     "wasm:build": "wasm-pack build crates/choco-wasm --target web --out-dir ../../crates/choco-wasm/pkg",
     "wasm:build:dev": "wasm-pack build crates/choco-wasm --target web --dev --out-dir ../../crates/choco-wasm/pkg"
@@ -28,6 +30,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tauri-apps/cli": "^2",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
