@@ -171,6 +171,22 @@ export const dict: Record<Lang, Record<string, string>> = {
     // Language toggle
     "lang.toggle": "English",
 
+    // Slider aria-labels (Issue #34)
+    "aria.referenceOpacity": "参照画像の不透明度",
+    "aria.opacity": "不透明度",
+    "aria.gridSize": "グリッド間隔",
+    "aria.brushSize": "ブラシサイズ",
+    "aria.tolerance": "色許容値",
+    "aria.holeFill": "穴埋め半径",
+    "aria.feather": "フェザー半径",
+    "aria.fontSize": "フォントサイズ",
+    "aria.polygonSides": "多角形の辺数",
+    "aria.strokeWidth": "線幅",
+    "aria.rotation": "回転角度",
+    "aria.gradientAngle": "グラデーション角度",
+    "aria.gradientStopPos": "グラデーション色ストップ位置",
+    "aria.jpegQuality": "JPEG画質",
+
     // Welcome modal (Issue #29)
     "welcome.title": "Choco へようこそ",
     "welcome.intro1": "画像を開いてクリックするだけで色を変更できます",
@@ -340,6 +356,22 @@ export const dict: Record<Lang, Record<string, string>> = {
 
     // Language toggle
     "lang.toggle": "日本語",
+
+    // Slider aria-labels (Issue #34)
+    "aria.referenceOpacity": "Reference image opacity",
+    "aria.opacity": "Opacity",
+    "aria.gridSize": "Grid size",
+    "aria.brushSize": "Brush size",
+    "aria.tolerance": "Color tolerance",
+    "aria.holeFill": "Hole-fill radius",
+    "aria.feather": "Feather radius",
+    "aria.fontSize": "Font size",
+    "aria.polygonSides": "Polygon sides",
+    "aria.strokeWidth": "Stroke width",
+    "aria.rotation": "Rotation",
+    "aria.gradientAngle": "Gradient angle",
+    "aria.gradientStopPos": "Gradient stop position",
+    "aria.jpegQuality": "JPEG quality",
 
     // Welcome modal (Issue #29)
     "welcome.title": "Welcome to Choco",

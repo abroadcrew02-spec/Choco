@@ -2257,6 +2257,8 @@ export function MvpEditor() {
                 onChange={(e) => setReferenceOpacity(Number(e.target.value))}
                 style={{ width: 62 }}
                 title={`参照画像の不透明度: ${referenceOpacity}%`}
+                aria-label={t("aria.referenceOpacity", lang)}
+                aria-valuetext={`${referenceOpacity}%`}
               />
               <button
                 type="button"
@@ -2287,6 +2289,8 @@ export function MvpEditor() {
             onChange={(e) => setOpacity(Number(e.target.value))}
             style={{ width: 62 }}
             title={`不透明度: ${opacity}%`}
+            aria-label={t("aria.opacity", lang)}
+            aria-valuetext={`${opacity}%`}
           />
 
           {/* S7: Blend mode */}
@@ -2335,6 +2339,8 @@ export function MvpEditor() {
                 onChange={(e) => setGridSize(Number(e.target.value))}
                 style={{ width: 62 }}
                 title={`グリッド間隔: ${gridSize}px`}
+                aria-label={t("aria.gridSize", lang)}
+                aria-valuetext={`${gridSize}px`}
               />
             </>
           )}
@@ -2460,6 +2466,8 @@ export function MvpEditor() {
                   onChange={(e) => setBrushSize(Number(e.target.value))}
                   style={{ width: 72 }}
                   title="ブラシサイズ (1-100px)"
+                  aria-label={t("aria.brushSize", lang)}
+                  aria-valuetext={`${brushSize}px`}
                 />
               </>
             )}
@@ -2476,6 +2484,8 @@ export function MvpEditor() {
                   onChange={(e) => setTolerance(Number(e.target.value))}
                   style={{ width: 72 }}
                   title="色許容値"
+                  aria-label={t("aria.tolerance", lang)}
+                  aria-valuetext={String(tolerance)}
                 />
               </>
             )}
@@ -2493,6 +2503,8 @@ export function MvpEditor() {
                   onChange={(e) => setCloseRadius(Number(e.target.value))}
                   style={{ width: 54 }}
                   title="穴埋め半径 (0=OFF, クロージング半径 1-5)"
+                  aria-label={t("aria.holeFill", lang)}
+                  aria-valuetext={closeRadius === 0 ? "OFF" : String(closeRadius)}
                 />
               </>
             )}
@@ -2510,6 +2522,8 @@ export function MvpEditor() {
                   onChange={(e) => setFeatherRadius(Number(e.target.value))}
                   style={{ width: 62 }}
                   title="フェザー (境界ぼかし) 0=OFF, 1-20px"
+                  aria-label={t("aria.feather", lang)}
+                  aria-valuetext={featherRadius === 0 ? "OFF" : `${featherRadius}px`}
                 />
               </>
             )}
@@ -2590,6 +2604,8 @@ export function MvpEditor() {
                   onChange={(e) => setTextFontSize(Number(e.target.value))}
                   style={{ width: 72 }}
                   title="フォントサイズ (10-200px)"
+                  aria-label={t("aria.fontSize", lang)}
+                  aria-valuetext={`${textFontSize}px`}
                 />
               </>
             )}
@@ -2619,6 +2635,8 @@ export function MvpEditor() {
                       onChange={(e) => setPolyVertices(Number(e.target.value))}
                       style={{ width: 54 }}
                       title="多角形の辺数 (3-12)"
+                      aria-label={t("aria.polygonSides", lang)}
+                      aria-valuetext={String(polyVertices)}
                     />
                   </>
                 )}
@@ -2674,6 +2692,8 @@ export function MvpEditor() {
                       onChange={(e) => setStrokeWidth(Number(e.target.value))}
                       style={{ width: 62 }}
                       title="線幅 (0-20px)"
+                      aria-label={t("aria.strokeWidth", lang)}
+                      aria-valuetext={`${strokeWidth}px`}
                     />
                   </>
                 )}
@@ -2724,6 +2744,7 @@ export function MvpEditor() {
                         onFillTypeChange={setFillType}
                         onGradientConfigChange={setGradientConfig}
                         onClose={() => setGradientEditorOpen(false)}
+                        lang={lang}
                       />
                     </div>
                   )}
@@ -2750,6 +2771,8 @@ export function MvpEditor() {
                   onChange={(e) => setDraftRotateDeg(Number(e.target.value))}
                   style={{ width: 72 }}
                   title={`回転: ${draftRotateDeg}°`}
+                  aria-label={t("aria.rotation", lang)}
+                  aria-valuetext={`${draftRotateDeg}°`}
                 />
                 <Tooltip label="水平反転">
                   <button

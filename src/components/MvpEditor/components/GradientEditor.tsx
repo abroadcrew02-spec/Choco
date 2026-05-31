@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { T } from "../theme/tokens";
+import { t, Lang } from "../lib/i18n";
 
 // ---------------------------------------------------------------------------
 // Types (exported for use in MvpEditor)
@@ -124,6 +125,7 @@ interface GradientEditorProps {
   onFillTypeChange: (ft: FillType) => void;
   onGradientConfigChange: (cfg: GradientConfig) => void;
   onClose: () => void;
+  lang?: Lang;
 }
 
 export function GradientEditor({
@@ -132,6 +134,7 @@ export function GradientEditor({
   onFillTypeChange,
   onGradientConfigChange,
   onClose,
+  lang = "ja",
 }: GradientEditorProps) {
   const [editingStopIdx, setEditingStopIdx] = useState<number | null>(null);
 
@@ -250,6 +253,8 @@ export function GradientEditor({
             }
             style={{ flex: 1 }}
             title="グラチE�Eション角度 (0-360°)"
+            aria-label={t("aria.gradientAngle", lang)}
+            aria-valuetext={`${gradientConfig.angle}°`}
           />
         </div>
       )}
@@ -298,6 +303,8 @@ export function GradientEditor({
                 onChange={(e) => updateStop(idx, { position: Number(e.target.value) })}
                 style={{ flex: 1 }}
                 title={`位置: ${Math.round(stop.position * 100)}%`}
+                aria-label={`${t("aria.gradientStopPos", lang)} ${idx + 1}`}
+                aria-valuetext={`${Math.round(stop.position * 100)}%`}
               />
               <span style={{ color: T.color.textDim, fontSize: T.font.badge, width: 28, textAlign: "right", flexShrink: 0 }}>
                 {Math.round(stop.position * 100)}%

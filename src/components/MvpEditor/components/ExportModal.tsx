@@ -413,7 +413,8 @@ export function ExportModal({
               value={quality}
               onChange={(e) => setQuality(Number(e.target.value))}
               style={{ width: "100%", accentColor: T.color.accent }}
-              aria-label="JPEG画質"
+              aria-label="JPEG quality"
+              aria-valuetext={String(quality)}
             />
           </div>
         )}
