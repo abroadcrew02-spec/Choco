@@ -30,7 +30,7 @@ import {
   buildSvg,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
-import { copyImageDataInto, buildShapePath } from "../../src/components/MvpEditor/lib/imageProcessing";
+import { copyImageDataInto, buildShapePath, snapCoord } from "../../src/components/MvpEditor/lib/imageProcessing";
 import {
   getMimeType,
   getFileExtension,
@@ -1257,43 +1257,35 @@ describe("formatFileSizeLabel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// S8: snapCoord logic (inline — function is internal to MvpEditor component)
+// S8: snapCoord logic
 // ---------------------------------------------------------------------------
-
-/** Mirrors the snapCoord logic from MvpEditor.tsx */
-function snapCoordFn(v: number, snapEnabled: boolean, gridSize: number): number {
-  if (!snapEnabled || gridSize <= 0) return v;
-  return Math.round(v / gridSize) * gridSize;
-}
 
 describe("snapCoord", () => {
   it("returns value unchanged when snapEnabled=false", () => {
-    expect(snapCoordFn(37, false, 20)).toBe(37);
+    expect(snapCoord(37, false, 20)).toBe(37);
   });
 
   it("returns value unchanged when gridSize=0", () => {
-    expect(snapCoordFn(37, true, 0)).toBe(37);
+    expect(snapCoord(37, true, 0)).toBe(37);
   });
 
   it("snaps to nearest grid multiple (round up)", () => {
     // 37 / 20 = 1.85 → rounds to 2 → 2*20 = 40
-    expect(snapCoordFn(37, true, 20)).toBe(40);
+    expect(snapCoord(37, true, 20)).toBe(40);
   });
 
   it("snaps to nearest grid multiple (round down)", () => {
-    // 13 / 20 = 0.65 → rounds to 1 → 1*20 = 20; but 13/20=0.65 rounds to 1
-    // Wait: 13 / 20 = 0.65 → Math.round(0.65) = 1 → 20. Let's use 7 instead.
     // 7 / 20 = 0.35 → rounds to 0 → 0*20 = 0
-    expect(snapCoordFn(7, true, 20)).toBe(0);
+    expect(snapCoord(7, true, 20)).toBe(0);
   });
 
   it("returns exact multiple unchanged", () => {
-    expect(snapCoordFn(60, true, 20)).toBe(60);
+    expect(snapCoord(60, true, 20)).toBe(60);
   });
 
   it("works with gridSize=5", () => {
-    expect(snapCoordFn(13, true, 5)).toBe(15);
-    expect(snapCoordFn(12, true, 5)).toBe(10);
+    expect(snapCoord(13, true, 5)).toBe(15);
+    expect(snapCoord(12, true, 5)).toBe(10);
   });
 });
 

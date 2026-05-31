@@ -202,6 +202,7 @@ import {
   drawShape,
   isAcceptedImageFile,
   isInputFocused,
+  snapCoord as snapCoordPure,
   type PaintRegion,
   type ShapeKind,
 } from "./lib/imageProcessing";
@@ -778,10 +779,7 @@ export function MvpEditor() {
   // ---------------------------------------------------------------------------
 
   const snapCoord = useCallback(
-    (v: number): number => {
-      if (!snapEnabled || gridSize <= 0) return v;
-      return Math.round(v / gridSize) * gridSize;
-    },
+    (v: number): number => snapCoordPure(v, snapEnabled, gridSize),
     [snapEnabled, gridSize]
   );
 

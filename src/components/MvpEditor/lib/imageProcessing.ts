@@ -1099,3 +1099,16 @@ export function isInputFocused(target: EventTarget | null): boolean {
   const tag = el.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable === true;
 }
+
+// ---------------------------------------------------------------------------
+// S8: Grid snap helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Rounds a canvas coordinate to the nearest grid multiple when snap is enabled.
+ * When snapEnabled is false or gridSize is <= 0 the value is returned unchanged.
+ */
+export function snapCoord(v: number, snapEnabled: boolean, gridSize: number): number {
+  if (!snapEnabled || gridSize <= 0) return v;
+  return Math.round(v / gridSize) * gridSize;
+}
