@@ -215,6 +215,14 @@ export const dict: Record<Lang, Record<string, string>> = {
     "settings.reshowWelcomeBtn": "ウェルカム画面を表示",
     "settings.close": "閉じる",
     "label.settings": "設定",
+
+    // Canvas templates (Issue #55)
+    "template.sectionTitle": "テンプレートから新規作成",
+    "template.bgWhite": "白背景",
+    "template.bgTransparent": "透明",
+    "template.create": "作成",
+    "template.orOpenImage": "または画像を開く / ドロップ",
+    "status.templateCreated": "空キャンバスを作成しました",
   },
 
   en: {
@@ -420,6 +428,14 @@ export const dict: Record<Lang, Record<string, string>> = {
     "settings.reshowWelcomeBtn": "Show welcome screen",
     "settings.close": "Close",
     "label.settings": "Settings",
+
+    // Canvas templates (Issue #55)
+    "template.sectionTitle": "New from template",
+    "template.bgWhite": "White",
+    "template.bgTransparent": "Transparent",
+    "template.create": "Create",
+    "template.orOpenImage": "or open / drop an image",
+    "status.templateCreated": "Blank canvas created",
   },
 };
 

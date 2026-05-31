@@ -74,7 +74,8 @@ import { HsvPicker } from "./components/HsvPicker";
 import { Tooltip } from "./components/Tooltip";
 import { Toast, type ToastMessage } from "./components/Toast";
 import { ShortcutHelp } from "./components/ShortcutHelp";
-import { WelcomeModal, hasSeenWelcome, markWelcomeSeen, resetWelcomeSeen } from "./components/WelcomeModal";
+import { WelcomeModal, hasSeenWelcome, markWelcomeSeen, resetWelcomeSeen, type WelcomeStartOptions } from "./components/WelcomeModal";
+import { CANVAS_TEMPLATES, createBlankImageData } from "./lib/canvasTemplates";
 import {
   SettingsModal,
   loadDefaultPngScale,
@@ -1832,11 +1833,27 @@ export function MvpEditor() {
     }
   }, [autoSave, editorHistory, showToast]);
 
-  // Issue #29: welcome modal dismiss
-  const handleWelcomeClose = useCallback(() => {
-    markWelcomeSeen();
-    setShowWelcome(false);
-  }, []);
+  // Issue #29 / #55: welcome modal — dismiss or create blank canvas from template
+  const handleWelcomeStart = useCallback(
+    (opts: WelcomeStartOptions) => {
+      markWelcomeSeen();
+      setShowWelcome(false);
+      if (opts.templateId !== null) {
+        const tmpl = CANVAS_TEMPLATES.find((t) => t.id === opts.templateId);
+        if (tmpl) {
+          const imageData = createBlankImageData(tmpl, opts.bg);
+          const w = tmpl.width;
+          const h = tmpl.height;
+          setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
+          editorHistory.reset();
+          setPalette([]);
+          setStatus(t("status.templateCreated", lang));
+          tryFitContainer(w, h);
+        }
+      }
+    },
+    [editorHistory, lang, tryFitContainer]
+  );
 
   // Issue #5: Ctrl+S / Ctrl+O global shortcuts (defined after handlers to avoid forward ref)
   useEffect(() => {
@@ -3509,9 +3526,9 @@ export function MvpEditor() {
         />
       )}
 
-      {/* Issue #29: Welcome modal */}
+      {/* Issue #29 / #55: Welcome modal */}
       {showWelcome && (
-        <WelcomeModal lang={lang} onClose={handleWelcomeClose} />
+        <WelcomeModal lang={lang} onStart={handleWelcomeStart} />
       )}
 
       {/* Issue #52: Settings modal */}

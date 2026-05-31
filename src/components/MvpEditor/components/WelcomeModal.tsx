@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { Lang } from "../lib/i18n";
 import { t } from "../lib/i18n";
+import { CANVAS_TEMPLATES, type TemplateBg } from "../lib/canvasTemplates";
 
 // ---------------------------------------------------------------------------
 // WelcomeModal — shown on first launch, skipped on subsequent visits.
@@ -38,9 +40,16 @@ export function resetWelcomeSeen(): void {
 // Component
 // ---------------------------------------------------------------------------
 
+export interface WelcomeStartOptions {
+  /** If null the modal is dismissed without creating a canvas (user will open an image). */
+  templateId: string | null;
+  bg: TemplateBg;
+}
+
 interface WelcomeModalProps {
   lang: Lang;
-  onClose: () => void;
+  /** Called when user clicks "Start" (no template) or picks a template. */
+  onStart: (opts: WelcomeStartOptions) => void;
 }
 
 const OVERLAY: React.CSSProperties = {
@@ -58,8 +67,8 @@ const BOX: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.14)",
   borderRadius: 8,
   padding: "28px 32px 24px",
-  maxWidth: 420,
-  width: "90%",
+  maxWidth: 460,
+  width: "92%",
   boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
   fontFamily: "'Inter','Noto Sans JP',system-ui,sans-serif",
   color: "#e8e8e8",
@@ -95,34 +104,70 @@ const BULLET: React.CSSProperties = {
   fontSize: 14,
 };
 
-const HINT: React.CSSProperties = {
-  margin: "0 0 20px",
-  fontSize: 12,
+const SECTION_TITLE: React.CSSProperties = {
+  fontSize: 11,
   color: "#888",
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+  margin: "0 0 8px",
+};
+
+const TEMPLATE_LIST: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  margin: "0 0 14px",
+};
+
+const BTN_BASE: React.CSSProperties = {
+  fontFamily: "'Inter','Noto Sans JP',system-ui,sans-serif",
+  fontSize: 13,
+  borderRadius: 5,
+  cursor: "pointer",
+  transition: "background 120ms",
 };
 
 const BTN: React.CSSProperties = {
+  ...BTN_BASE,
   display: "block",
   width: "100%",
   padding: "9px 0",
   background: "#4f8ef7",
   color: "#fff",
   border: "none",
-  borderRadius: 5,
-  cursor: "pointer",
-  fontSize: 14,
-  fontFamily: "'Inter','Noto Sans JP',system-ui,sans-serif",
   fontWeight: "bold",
-  transition: "background 120ms",
+  fontSize: 14,
 };
 
-export function WelcomeModal({ lang, onClose }: WelcomeModalProps) {
+const BTN_SUBTLE: React.CSSProperties = {
+  ...BTN_BASE,
+  display: "block",
+  width: "100%",
+  padding: "7px 0",
+  background: "transparent",
+  color: "#888",
+  border: "1px solid rgba(255,255,255,0.12)",
+  fontSize: 12,
+};
+
+export function WelcomeModal({ lang, onStart }: WelcomeModalProps) {
+  const [selectedId, setSelectedId] = useState<string>(CANVAS_TEMPLATES[0].id);
+  const [bg, setBg] = useState<TemplateBg>("white");
+
   const features = [
     t("welcome.intro1", lang),
     t("welcome.intro2", lang),
     t("welcome.intro3", lang),
     t("welcome.intro4", lang),
   ];
+
+  const handleCreate = () => {
+    onStart({ templateId: selectedId, bg });
+  };
+
+  const handleSkip = () => {
+    onStart({ templateId: null, bg: "white" });
+  };
 
   return (
     <div style={OVERLAY} role="dialog" aria-modal="true" aria-labelledby="welcome-title">
@@ -138,14 +183,83 @@ export function WelcomeModal({ lang, onClose }: WelcomeModalProps) {
             </li>
           ))}
         </ul>
-        <p style={HINT}>{t("welcome.hint", lang)}</p>
+
+        {/* Template selection */}
+        <p style={SECTION_TITLE}>{t("template.sectionTitle", lang)}</p>
+        <div style={TEMPLATE_LIST} role="radiogroup" aria-label={t("template.sectionTitle", lang)}>
+          {CANVAS_TEMPLATES.map((tmpl) => {
+            const label = lang === "ja" ? tmpl.labelJa : tmpl.labelEn;
+            const hint = lang === "ja" ? tmpl.hintJa : tmpl.hintEn;
+            const selected = selectedId === tmpl.id;
+            return (
+              <label
+                key={tmpl.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 10px",
+                  borderRadius: 5,
+                  border: `1px solid ${selected ? "#4f8ef7" : "rgba(255,255,255,0.10)"}`,
+                  background: selected ? "rgba(79,142,247,0.10)" : "transparent",
+                  cursor: "pointer",
+                  transition: "background 100ms",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="canvas-template"
+                  value={tmpl.id}
+                  checked={selected}
+                  onChange={() => setSelectedId(tmpl.id)}
+                  style={{ cursor: "pointer", accentColor: "#4f8ef7" }}
+                />
+                <span style={{ flex: 1, fontSize: 13, color: selected ? "#e8e8e8" : "#b8b8b8" }}>
+                  {label}
+                </span>
+                <span style={{ fontSize: 11, color: "#666" }}>{hint}</span>
+              </label>
+            );
+          })}
+        </div>
+
+        {/* Background toggle */}
+        <div style={{ display: "flex", gap: 8, margin: "0 0 16px", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "#888" }}>BG:</span>
+          {(["white", "transparent"] as TemplateBg[]).map((opt) => (
+            <label
+              key={opt}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 12,
+                color: bg === opt ? "#e8e8e8" : "#888",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="radio"
+                name="template-bg"
+                value={opt}
+                checked={bg === opt}
+                onChange={() => setBg(opt)}
+                style={{ cursor: "pointer", accentColor: "#4f8ef7" }}
+              />
+              {opt === "white" ? t("template.bgWhite", lang) : t("template.bgTransparent", lang)}
+            </label>
+          ))}
+        </div>
+
+        <button type="button" style={BTN} onClick={handleCreate} autoFocus>
+          {t("template.create", lang)}
+        </button>
         <button
           type="button"
-          style={BTN}
-          onClick={onClose}
-          autoFocus
+          style={{ ...BTN_SUBTLE, marginTop: 8 }}
+          onClick={handleSkip}
         >
-          {t("welcome.start", lang)}
+          {t("template.orOpenImage", lang)}
         </button>
       </div>
     </div>
