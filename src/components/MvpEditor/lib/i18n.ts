@@ -141,6 +141,9 @@ export const dict: Record<Lang, Record<string, string>> = {
     "panel.newPalette": "+ 新しいパレット",
     "panel.noPalette": "パレットがありません",
     "panel.addCurrentColor": "+ 現在の色を追加",
+    "panel.exportPalette": "書き出し",
+    "panel.importPalette": "読み込み",
+    "panel.importPaletteError": "パレットファイルの読み込みに失敗しました",
     "panel.editLog": "編集ログ",
 
     // Drop zone
@@ -296,6 +299,9 @@ export const dict: Record<Lang, Record<string, string>> = {
     "panel.newPalette": "+ New palette",
     "panel.noPalette": "No palettes",
     "panel.addCurrentColor": "+ Add current color",
+    "panel.exportPalette": "Export",
+    "panel.importPalette": "Import",
+    "panel.importPaletteError": "Failed to import palette file",
     "panel.editLog": "Edit log",
 
     // Drop zone

@@ -37,6 +37,7 @@ import {
   downloadChocoFile,
   openChocoFile,
 } from "./lib/projectIO";
+import { downloadPaletteSet, deserializePaletteSet } from "./lib/paletteIO";
 import {
   addRecentFile,
   getRecentFiles,
@@ -1691,6 +1692,39 @@ export function MvpEditor() {
     setActivePaletteSetId((prev) => (prev === setId ? null : prev));
   }, []);
 
+  const handleExportPaletteSet = useCallback((setId: string) => {
+    const ps = paletteSets.find((s) => s.id === setId);
+    if (!ps) return;
+    downloadPaletteSet(ps);
+  }, [paletteSets]);
+
+  const handleImportPaletteSet = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result;
+        if (typeof text !== "string") return;
+        const imported = deserializePaletteSet(text);
+        if (!imported) {
+          showToast(t("panel.importPaletteError", lang), "error");
+          return;
+        }
+        setPaletteSets((prev) => {
+          const next = [...prev, imported].slice(-PALETTE_SETS_MAX);
+          savePaletteSets(next);
+          return next;
+        });
+        setActivePaletteSetId(imported.id);
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }, [lang, showToast]);
 
   // ---------------------------------------------------------------------------
   // Export handlers
@@ -3166,16 +3200,26 @@ export function MvpEditor() {
               {/* S5-2: Palette sets */}
               {showPalette && (
                 <div style={rightPanelSectionStyle}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: T.space.xs }}>
+                  <div style={paletteSectionHeaderRowStyle}>
                     <div style={rightPanelSectionHeaderStyle}>{t("panel.paletteSets", lang)}</div>
-                    <button
-                      type="button"
-                      onClick={handleAddPaletteSet}
-                      style={{ ...btnStyle, padding: "1px 6px", fontSize: T.font.badge }}
-                      title={t("panel.newPalette", lang)}
-                    >
-                      {t("panel.newPalette", lang)}
-                    </button>
+                    <div style={paletteSectionHeaderBtnsStyle}>
+                      <button
+                        type="button"
+                        onClick={handleImportPaletteSet}
+                        style={{ ...btnStyle, padding: "1px 6px", fontSize: T.font.badge }}
+                        title={t("panel.importPalette", lang)}
+                      >
+                        {t("panel.importPalette", lang)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAddPaletteSet}
+                        style={{ ...btnStyle, padding: "1px 6px", fontSize: T.font.badge }}
+                        title={t("panel.newPalette", lang)}
+                      >
+                        {t("panel.newPalette", lang)}
+                      </button>
+                    </div>
                   </div>
                   {paletteSets.length === 0 && (
                     <div style={{ color: T.color.textDim, fontSize: T.font.badge }}>{t("panel.noPalette", lang)}</div>
@@ -3204,6 +3248,14 @@ export function MvpEditor() {
                           title={ps.name}
                         >
                           {ps.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleExportPaletteSet(ps.id)}
+                          style={{ ...btnStyle, padding: "1px 5px", fontSize: T.font.badge, flexShrink: 0 }}
+                          title={t("panel.exportPalette", lang)}
+                        >
+                          {t("panel.exportPalette", lang)}
                         </button>
                         <button
                           type="button"
@@ -3731,6 +3783,18 @@ const swatchGridStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: T.space.xs,
+};
+
+const paletteSectionHeaderRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginBottom: T.space.xs,
+};
+
+const paletteSectionHeaderBtnsStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 4,
 };
 
 // Issue #5: Autosave restore modal styles
