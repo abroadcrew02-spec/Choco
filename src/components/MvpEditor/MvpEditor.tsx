@@ -590,18 +590,51 @@ export function simplifyPath(
   return [start, end];
 }
 
-export function marchingSquaresPath(pixels: { x: number; y: number }[]): string {
+/** Maximum pixel count before falling back to a bounding-box rectangle path. */
+const MARCHING_SQUARES_PIXEL_LIMIT = 2_000_000;
+
+export function marchingSquaresPath(
+  pixels: { x: number; y: number }[],
+  onFallback?: () => void
+): string {
   if (pixels.length === 0) return "";
 
-  // Build a fast lookup set using (y * maxPossibleWidth + x) key
-  // We use a string-based Set for simplicity and correctness across large images
-  const pixelSet = new Set<string>(pixels.map((p) => `${p.x},${p.y}`));
-
-  function has(x: number, y: number): boolean {
-    return pixelSet.has(`${x},${y}`);
+  // Guard: large regions fall back to bounding-box rect to avoid OOM / runaway loops.
+  if (pixels.length > MARCHING_SQUARES_PIXEL_LIMIT) {
+    onFallback?.();
+    let minX = pixels[0].x, maxX = pixels[0].x;
+    let minY = pixels[0].y, maxY = pixels[0].y;
+    for (const { x, y } of pixels) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    return `M${minX} ${minY} L${maxX + 1} ${minY} L${maxX + 1} ${maxY + 1} L${minX} ${maxY + 1} Z`;
   }
 
-  // Marching squares: collect all horizontal and vertical edge segments
+  // Build a fast numeric lookup: key = y * rowStride + x.
+  // Compute bounding box to determine stride (maxX + 2 to accommodate corner coords).
+  let minX = pixels[0].x, maxX = pixels[0].x;
+  let minY = pixels[0].y, maxY = pixels[0].y;
+  for (const { x, y } of pixels) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const stride = maxX - minX + 2; // +2 so (x+1) is always in range
+
+  const pixelSet = new Set<number>(
+    pixels.map((p) => (p.y - minY) * stride + (p.x - minX))
+  );
+
+  function has(x: number, y: number): boolean {
+    if (x < minX || x > maxX || y < minY || y > maxY) return false;
+    return pixelSet.has((y - minY) * stride + (x - minX));
+  }
+
+  // Marching squares: collect all horizontal and vertical edge segments.
   // An edge exists where the inside/outside status changes between adjacent cells.
   // We collect axis-aligned unit edges, then chain them into closed loops.
 
@@ -610,19 +643,25 @@ export function marchingSquaresPath(pixels: { x: number; y: number }[]): string 
   // Vertical edges:   left edge of pixel (x,y) if (x,y) is inside and (x-1,y) is outside,
   //                   right edge of pixel (x,y) if (x,y) is inside and (x+1,y) is outside.
 
-  // Edge representation: each edge is from point A to point B (integer grid corners).
-  // We store edges in a map: startPoint -> [endPoint, ...]
-
-  // Grid corners are at integer coordinates. Pixel (x,y) occupies the square
-  // from corner (x,y) to corner (x+1,y+1).
+  // Edge representation: each edge is from corner A to corner B (integer grid coords).
+  // Corner (cx, cy) is encoded as a number using a separate corner stride so that
+  // the key space is distinct from the pixel set.
+  // Corner coords range from (minX, minY) to (maxX+1, maxY+1).
 
   interface Point { x: number; y: number }
-  type EdgeMap = Map<string, Point[]>;
 
+  // Corner stride: corners span [minX .. maxX+1] x [minY .. maxY+1]
+  const cStride = maxX - minX + 3; // corner x range = maxX+1-minX+1 = maxX-minX+2; +1 for safety
+
+  function cornerKey(cx: number, cy: number): number {
+    return (cy - minY) * cStride + (cx - minX);
+  }
+
+  type EdgeMap = Map<number, Point[]>;
   const edgeMap: EdgeMap = new Map();
 
   function addEdge(ax: number, ay: number, bx: number, by: number): void {
-    const key = `${ax},${ay}`;
+    const key = cornerKey(ax, ay);
     const existing = edgeMap.get(key);
     if (existing) {
       existing.push({ x: bx, y: by });
@@ -642,23 +681,29 @@ export function marchingSquaresPath(pixels: { x: number; y: number }[]): string 
     if (!has(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1);
   }
 
-  // Trace closed loops from the edge map
+  // Trace closed loops from the edge map.
+  // Fix(#3): capture edgeMap.size BEFORE the loop so deletions do not shrink the
+  // upper bound mid-traversal, preventing premature loop termination on large regions.
   const pathParts: string[] = [];
-  const visitedEdgeKeys = new Set<string>();
+  const visitedCornerKeys = new Set<number>();
 
   for (const [startKey, _] of edgeMap) {
-    if (visitedEdgeKeys.has(startKey)) continue;
+    if (visitedCornerKeys.has(startKey)) continue;
 
-    // Start a new loop from this point
-    const firstPtParts = startKey.split(",");
-    const firstPt: Point = { x: Number(firstPtParts[0]), y: Number(firstPtParts[1]) };
+    // Decode corner key back to (x, y)
+    const relY = Math.floor(startKey / cStride);
+    const relX = startKey - relY * cStride;
+    const firstPt: Point = { x: relX + minX, y: relY + minY };
 
     const loopPoints: Point[] = [firstPt];
     let current = firstPt;
     let loopClosed = false;
 
-    for (let step = 0; step < edgeMap.size + 4; step++) {
-      const key = `${current.x},${current.y}`;
+    // Use the initial edgeMap size (before any deletions) as the loop budget.
+    const initialEdgeCount = edgeMap.size;
+
+    for (let step = 0; step < initialEdgeCount + 4; step++) {
+      const key = cornerKey(current.x, current.y);
       const nexts = edgeMap.get(key);
       if (!nexts || nexts.length === 0) break;
 
@@ -668,7 +713,7 @@ export function marchingSquaresPath(pixels: { x: number; y: number }[]): string 
       nexts.splice(0, 1);
       if (nexts.length === 0) edgeMap.delete(key);
 
-      visitedEdgeKeys.add(key);
+      visitedCornerKeys.add(key);
 
       if (next.x === firstPt.x && next.y === firstPt.y) {
         loopClosed = true;
@@ -706,7 +751,8 @@ export function buildSvg(
   imageData: ImageData,
   regions: PaintRegion[],
   width: number,
-  height: number
+  height: number,
+  onFallback?: () => void
 ): string {
   const baseDataUrl = imageDataToPngDataUrl(imageData);
 
@@ -737,7 +783,7 @@ ${maskRects}
   const colorElements = regions
     .filter((r) => !r.transparent && r.pixels.length > 0)
     .map((region) => {
-      const d = marchingSquaresPath(region.pixels);
+      const d = marchingSquaresPath(region.pixels, onFallback);
       if (!d) return "";
       return `  <path d="${d}" fill="${region.color}" fill-rule="evenodd" />`;
     })
@@ -2437,11 +2483,13 @@ export function MvpEditor() {
 
   const handleExportSvg = useCallback(() => {
     if (!baseState.imageData) return;
+    let usedFallback = false;
     const svgString = buildSvg(
       baseState.imageData,
       regions,
       baseState.naturalWidth,
-      baseState.naturalHeight
+      baseState.naturalHeight,
+      () => { usedFallback = true; }
     );
     const blob = new Blob([svgString], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
@@ -2450,8 +2498,13 @@ export function MvpEditor() {
     a.download = "export.svg";
     a.click();
     URL.revokeObjectURL(url);
-    setStatus("SVGをエクスポートしました");
-    showToast("SVGをエクスポートしました");
+    if (usedFallback) {
+      setStatus("SVGをエクスポートしました (大領域のため矩形で近似)");
+      showToast("大領域のため矩形パスで出力しました", "error");
+    } else {
+      setStatus("SVGをエクスポートしました");
+      showToast("SVGをエクスポートしました");
+    }
   }, [baseState, regions, showToast]);
 
   const handleExportPng = useCallback(() => {

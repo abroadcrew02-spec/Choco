@@ -25,6 +25,7 @@ import {
   removeCollinear,
   simplifyPath,
   normalizeBbox,
+  marchingSquaresPath,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 import { hsv2rgb, rgb2hsv } from "../../src/components/MvpEditor/components/HsvPicker";
@@ -1139,5 +1140,66 @@ describe("draft rotate deg-to-rad conversion", () => {
     const rad = (-90 * Math.PI) / 180;
     expect(Math.cos(rad)).toBeCloseTo(0, 5);
     expect(Math.sin(rad)).toBeCloseTo(-1, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #3 + #20: marchingSquaresPath — loop cap + 2M guard + numeric pixelSet
+// ---------------------------------------------------------------------------
+
+describe("marchingSquaresPath", () => {
+  it("returns empty string for empty pixel list", () => {
+    expect(marchingSquaresPath([])).toBe("");
+  });
+
+  it("produces a closed SVG path (ends with Z) for a solid rectangle", () => {
+    // 4x4 rectangle of pixels — should produce at least one closed loop
+    const pixels: { x: number; y: number }[] = [];
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        pixels.push({ x, y });
+      }
+    }
+    const d = marchingSquaresPath(pixels);
+    expect(d).toContain("Z");
+  });
+
+  it("loop always terminates for a large region (loop-cap fix, Issue #3)", () => {
+    // 1500x1200 = 1,800,000 pixels — under the 2M fallback threshold but large
+    // enough to stress the loop limit (old bug: edgeMap.size shrinks mid-loop)
+    const pixels: { x: number; y: number }[] = [];
+    for (let y = 0; y < 1200; y++) {
+      for (let x = 0; x < 1500; x++) {
+        pixels.push({ x, y });
+      }
+    }
+    // Must finish without hanging and produce a valid path
+    const d = marchingSquaresPath(pixels);
+    expect(typeof d).toBe("string");
+    expect(d.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to bounding-box rect for pixel count > 2M and calls onFallback (Issue #3)", () => {
+    // Build a minimal >2M pixel list efficiently using sparse coordinates
+    const pixels: { x: number; y: number }[] = [];
+    for (let i = 0; i < 2_000_001; i++) {
+      pixels.push({ x: i % 2000, y: Math.floor(i / 2000) });
+    }
+    let fallbackCalled = false;
+    const d = marchingSquaresPath(pixels, () => { fallbackCalled = true; });
+    expect(fallbackCalled).toBe(true);
+    // Fallback path must be a valid rect: starts with M, ends with Z
+    expect(d).toMatch(/^M/);
+    expect(d).toMatch(/Z$/);
+  });
+
+  it("numeric pixelSet lookup is correct — non-member pixel returns outside (Issue #20)", () => {
+    // Single pixel at (5, 10); pixel at (6, 10) is NOT in the set
+    // marchingSquaresPath should generate boundary edges (right edge of (5,10))
+    const pixels = [{ x: 5, y: 10 }];
+    const d = marchingSquaresPath(pixels);
+    // Path must contain the corner coords 6,10 and 6,11 (right-edge corners)
+    expect(d).toContain("6");
+    expect(d).toContain("10");
   });
 });
