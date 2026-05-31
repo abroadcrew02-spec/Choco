@@ -36,3 +36,39 @@ export const T = {
     badge:  10,
   },
 } as const;
+
+// ---------------------------------------------------------------------------
+// Design tokens — Light Studio
+// ---------------------------------------------------------------------------
+
+export const Tlight = {
+  color: {
+    bgBase:      "#f5f5f5",
+    bgPanel:     "#ffffff",
+    bgElevated:  "#ececec",
+    border:      "rgba(0,0,0,0.10)",
+    borderMid:   "rgba(0,0,0,0.18)",
+    textPrimary: "#1a1a1a",
+    textMuted:   "#666",
+    textDim:     "#999",
+    accent:      "#2563eb",
+    accentHover: "#3b82f6",
+    danger:      "#dc2626",
+    dangerDark:  "#fecaca",
+    success:     "#16a34a",
+    overlay:     "rgba(0,0,0,0.4)",
+    overlayMid:  "rgba(0,0,0,0.3)",
+    checkerA:    "#d0d0d0",
+    checkerB:    "#e8e8e8",
+    swatchRemoveBg: "#fee2e2",
+  },
+  space: T.space,
+  radius: T.radius,
+  shadow: {
+    panel:    "0 1px 3px rgba(0,0,0,0.12)",
+    elevated: "0 4px 16px rgba(0,0,0,0.18)",
+  },
+  font: T.font,
+} as const;
+
+export type ThemeTokens = typeof T;

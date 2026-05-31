@@ -32,6 +32,8 @@ import {
   Clock,
   Frame,
   HelpCircle,
+  Sun,
+  Moon,
 } from "lucide-react";
 import {
   serializeProject,
@@ -80,6 +82,7 @@ import {
 } from "./components/ExportModal";
 
 import { T } from "./theme/tokens";
+import { useTheme } from "./hooks/useTheme";
 import { useLang, t } from "./lib/i18n";
 
 // ---------------------------------------------------------------------------
@@ -364,6 +367,7 @@ export function MvpEditor() {
   const [referenceOpacity, setReferenceOpacity] = useState<number>(50);
 
   const { lang, setLang } = useLang();
+  const { themeMode, theme, toggleTheme } = useTheme();
 
   const zoom = useZoomPan(spacePressed);
 
@@ -1938,11 +1942,11 @@ export function MvpEditor() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div style={rootStyle}>
+    <div style={{ ...rootStyle, background: theme.color.bgBase, color: theme.color.textPrimary }}>
       {/* ===== Property Bar (top, full-width) — 2-row layout ===== */}
-      <div style={propertyBarStyle}>
+      <div style={{ ...propertyBarStyle, background: theme.color.bgPanel, borderBottomColor: theme.color.border }}>
         {/* --- Upper row: always-visible common controls --- */}
-        <div style={propertyBarUpperRowStyle}>
+        <div style={{ ...propertyBarUpperRowStyle, borderBottomColor: theme.color.border }}>
           {/* File open */}
           <Tooltip label={t("label.openImage", lang)}>
             <button
@@ -2806,7 +2810,7 @@ export function MvpEditor() {
       <div style={mainBodyStyle}>
 
         {/* Left vertical toolbar */}
-        <div style={leftToolbarStyle}>
+        <div style={{ ...leftToolbarStyle, background: theme.color.bgPanel, borderRightColor: theme.color.border }}>
           <Tooltip label={t("tool.color", lang)}>
             <button
               type="button"
@@ -2884,6 +2888,17 @@ export function MvpEditor() {
               <Square size={18} />
             </button>
           </Tooltip>
+          <Tooltip label={themeMode === "dark" ? "ライトテーマに切替" : "ダークテーマに切替"}>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              style={{ ...leftToolBtnStyle, marginTop: "auto" }}
+              aria-label={themeMode === "dark" ? "ライトテーマに切替" : "ダークテーマに切替"}
+              aria-pressed={themeMode === "light"}
+            >
+              {themeMode === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+          </Tooltip>
           <Tooltip label={t("label.help", lang)}>
             <button
               type="button"
@@ -2891,7 +2906,7 @@ export function MvpEditor() {
                 x: Math.max(8, window.innerWidth / 2 - 130),
                 y: Math.max(8, window.innerHeight / 2 - 120),
               })}
-              style={{ ...leftToolBtnStyle, marginTop: "auto" }}
+              style={leftToolBtnStyle}
               aria-label="キーボードショートカット一覧を開く"
             >
               <HelpCircle size={18} />
@@ -2932,13 +2947,13 @@ export function MvpEditor() {
             position: "relative",
             cursor: canvasCursor,
             backgroundImage:
-              `linear-gradient(45deg, ${T.color.checkerA} 25%, transparent 25%), ` +
-              `linear-gradient(-45deg, ${T.color.checkerA} 25%, transparent 25%), ` +
-              `linear-gradient(45deg, transparent 75%, ${T.color.checkerA} 75%), ` +
-              `linear-gradient(-45deg, transparent 75%, ${T.color.checkerA} 75%)`,
+              `linear-gradient(45deg, ${theme.color.checkerA} 25%, transparent 25%), ` +
+              `linear-gradient(-45deg, ${theme.color.checkerA} 25%, transparent 25%), ` +
+              `linear-gradient(45deg, transparent 75%, ${theme.color.checkerA} 75%), ` +
+              `linear-gradient(-45deg, transparent 75%, ${theme.color.checkerA} 75%)`,
             backgroundSize: "16px 16px",
             backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-            backgroundColor: T.color.checkerB,
+            backgroundColor: theme.color.checkerB,
           }}
         >
           {!baseState.imageData ? (
@@ -3066,7 +3081,7 @@ export function MvpEditor() {
 
         {/* Right panel */}
         {(showPalette || showMapping) && (
-          <div style={rightPanelStyle}>
+          <div style={{ ...rightPanelStyle, background: theme.color.bgPanel, borderLeftColor: theme.color.border }}>
             {/* Panel toggle tabs */}
             <div style={rightPanelHeaderRowStyle}>
               <button
@@ -3388,7 +3403,7 @@ export function MvpEditor() {
 
         {/* Right panel collapsed — show reopen buttons */}
         {!showPalette && !showMapping && (
-          <div style={rightPanelCollapsedStyle}>
+          <div style={{ ...rightPanelCollapsedStyle, background: theme.color.bgPanel, borderLeftColor: theme.color.border }}>
             <button
               type="button"
               onClick={() => setShowPalette(true)}
@@ -3412,7 +3427,7 @@ export function MvpEditor() {
       </div>
 
       {/* ===== Status bar (bottom, full-width) ===== */}
-      <div style={bottomStatusBarStyle}>
+      <div style={{ ...bottomStatusBarStyle, background: theme.color.bgPanel, borderTopColor: theme.color.border, color: theme.color.textPrimary }}>
         <span style={statusModeLabelStyle}>[{modeLabel}]</span>
         <span>{hoverInfo ?? status}</span>
         {baseState.imageData && (
