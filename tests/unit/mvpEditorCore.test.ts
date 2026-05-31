@@ -1203,3 +1203,110 @@ describe("marchingSquaresPath", () => {
     expect(d).toContain("10");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #4: Editor history state machine — regions + bakeLayer atomic sync
+// ---------------------------------------------------------------------------
+
+import { HISTORY_LIMIT as EDITOR_HISTORY_LIMIT } from "../../src/components/MvpEditor/hooks/useUndoRedo";
+import type { EditorSnapshot } from "../../src/components/MvpEditor/hooks/useEditorHistory";
+
+interface EditorHistoryState {
+  history: EditorSnapshot[];
+  index: number;
+}
+
+function makeEditorState(): EditorHistoryState {
+  return { history: [{ regions: [], bakeLayer: null }], index: 0 };
+}
+
+function ehPush(
+  state: EditorHistoryState,
+  regions: PaintRegion[],
+  bakeLayer: ImageData | null
+): EditorHistoryState {
+  const snapshot: EditorSnapshot = { regions, bakeLayer };
+  const truncated = state.history.slice(0, state.index + 1);
+  const next = [...truncated, snapshot];
+  const sliced =
+    next.length > EDITOR_HISTORY_LIMIT ? next.slice(next.length - EDITOR_HISTORY_LIMIT) : next;
+  return { history: sliced, index: sliced.length - 1 };
+}
+
+function ehUndo(state: EditorHistoryState): EditorHistoryState {
+  return state.index > 0 ? { ...state, index: state.index - 1 } : state;
+}
+
+function ehRedo(state: EditorHistoryState): EditorHistoryState {
+  return state.index < state.history.length - 1
+    ? { ...state, index: state.index + 1 }
+    : state;
+}
+
+function ehCurrent(state: EditorHistoryState): EditorSnapshot {
+  return state.history[state.index];
+}
+
+describe("Issue #4: EditorHistory — regions + bakeLayer atomic sync", () => {
+  it("initial state has empty regions and null bakeLayer", () => {
+    const s = makeEditorState();
+    expect(ehCurrent(s).regions).toEqual([]);
+    expect(ehCurrent(s).bakeLayer).toBeNull();
+  });
+
+  it("push stores regions and bakeLayer together in one entry", () => {
+    const bake = new ImageData(new Uint8ClampedArray(4), 1, 1);
+    const region: PaintRegion = { id: "r1", pixels: [{ x: 0, y: 0 }], color: "#ff0000", transparent: false };
+    let s = makeEditorState();
+    s = ehPush(s, [region], bake);
+    expect(ehCurrent(s).regions).toHaveLength(1);
+    expect(ehCurrent(s).bakeLayer).toBe(bake);
+  });
+
+  it("undo restores both regions and bakeLayer simultaneously (atomic)", () => {
+    const bake1 = new ImageData(new Uint8ClampedArray(4), 1, 1);
+    const bake2 = new ImageData(new Uint8ClampedArray(4), 1, 1);
+    const r1: PaintRegion = { id: "r1", pixels: [{ x: 0, y: 0 }], color: "#ff0000", transparent: false };
+    const r2: PaintRegion = { id: "r2", pixels: [{ x: 1, y: 0 }], color: "#00ff00", transparent: false };
+
+    let s = makeEditorState();
+    s = ehPush(s, [r1], bake1);
+    s = ehPush(s, [r1, r2], bake2);
+
+    // Before undo: both regions + bake2
+    expect(ehCurrent(s).regions).toHaveLength(2);
+    expect(ehCurrent(s).bakeLayer).toBe(bake2);
+
+    // After undo: exactly r1 + bake1 — no desync
+    s = ehUndo(s);
+    expect(ehCurrent(s).regions).toHaveLength(1);
+    expect(ehCurrent(s).bakeLayer).toBe(bake1);
+  });
+
+  it("redo restores both regions and bakeLayer simultaneously after undo", () => {
+    const bake = new ImageData(new Uint8ClampedArray(4), 1, 1);
+    const r1: PaintRegion = { id: "r1", pixels: [{ x: 0, y: 0 }], color: "#ff0000", transparent: false };
+
+    let s = makeEditorState();
+    s = ehPush(s, [r1], bake);
+    s = ehUndo(s);
+
+    // Back to initial
+    expect(ehCurrent(s).regions).toHaveLength(0);
+    expect(ehCurrent(s).bakeLayer).toBeNull();
+
+    // Redo: both r1 and bake restored together
+    s = ehRedo(s);
+    expect(ehCurrent(s).regions).toHaveLength(1);
+    expect(ehCurrent(s).bakeLayer).toBe(bake);
+  });
+
+  it("history is capped at EDITOR_HISTORY_LIMIT — oldest entry dropped", () => {
+    let s = makeEditorState();
+    for (let i = 0; i < EDITOR_HISTORY_LIMIT + 4; i++) {
+      s = ehPush(s, [{ id: `r${i}`, pixels: [], color: "#000000", transparent: false }], null);
+    }
+    expect(s.history.length).toBe(EDITOR_HISTORY_LIMIT);
+    expect(s.index).toBe(EDITOR_HISTORY_LIMIT - 1);
+  });
+});

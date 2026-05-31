@@ -33,7 +33,7 @@ import {
   applyLinearGradient,
   applyRadialGradient,
 } from "./components/GradientEditor";
-import { useUndoRedo } from "./hooks/useUndoRedo";
+import { useEditorHistory } from "./hooks/useEditorHistory";
 import { useZoomPan } from "./hooks/useZoomPan";
 import { HsvPicker } from "./components/HsvPicker";
 import { Tooltip } from "./components/Tooltip";
@@ -480,12 +480,6 @@ export function smoothReplaceAll(
   return new ImageData(resultData, width, height);
 }
 
-/**
- * Returns a deep copy of the given ImageData.
- */
-function copyImageData(src: ImageData): ImageData {
-  return new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
-}
 
 /**
  * Converts ImageData to a PNG data URL via an offscreen canvas.
@@ -1198,15 +1192,9 @@ export function MvpEditor() {
     naturalHeight: 0,
   });
 
-  const regionHistory = useUndoRedo<PaintRegion[]>([]);
-  const regions = regionHistory.current;
-
-  // bakeLayer: transparent ImageData that accumulates direct pixel painting (brush).
-  // Stored as a ref to avoid re-render on every stroke tick.
-  // bakeLayerHistory mirrors regionHistory for Undo/Redo synchronization.
-  const bakeLayerRef = useRef<ImageData | null>(null);
-  const bakeLayerHistoryRef = useRef<(ImageData | null)[]>([null]);
-  const bakeLayerHistoryIndexRef = useRef<number>(0);
+  const editorHistory = useEditorHistory();
+  const regions = editorHistory.regions;
+  const bakeLayerRef = editorHistory.bakeLayerRef;
 
   // Brush stroke state
   const brushDrawingRef = useRef<boolean>(false);
@@ -1343,49 +1331,6 @@ export function MvpEditor() {
     }
   }, [textDraft]);
 
-  // ---------------------------------------------------------------------------
-  // bakeLayer helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Pushes the current bakeLayer into bakeLayerHistory in sync with regionHistory.
-   * Call this whenever regionHistory.push() is called.
-   */
-  const pushBakeSnapshot = useCallback((snapshot: ImageData | null) => {
-    const HISTORY_LIMIT = 10;
-    const idx = bakeLayerHistoryIndexRef.current;
-    const hist = bakeLayerHistoryRef.current;
-    const truncated = hist.slice(0, idx + 1);
-    const next = [...truncated, snapshot ? copyImageData(snapshot) : null];
-    const sliced = next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
-    bakeLayerHistoryRef.current = sliced;
-    bakeLayerHistoryIndexRef.current = sliced.length - 1;
-  }, []);
-
-  const undoBakeSnapshot = useCallback(() => {
-    const idx = bakeLayerHistoryIndexRef.current;
-    if (idx > 0) {
-      bakeLayerHistoryIndexRef.current = idx - 1;
-      const snapshot = bakeLayerHistoryRef.current[idx - 1];
-      bakeLayerRef.current = snapshot ? copyImageData(snapshot) : null;
-    }
-  }, []);
-
-  const redoBakeSnapshot = useCallback(() => {
-    const idx = bakeLayerHistoryIndexRef.current;
-    const hist = bakeLayerHistoryRef.current;
-    if (idx < hist.length - 1) {
-      bakeLayerHistoryIndexRef.current = idx + 1;
-      const snapshot = hist[idx + 1];
-      bakeLayerRef.current = snapshot ? copyImageData(snapshot) : null;
-    }
-  }, []);
-
-  const resetBakeHistory = useCallback(() => {
-    bakeLayerRef.current = null;
-    bakeLayerHistoryRef.current = [null];
-    bakeLayerHistoryIndexRef.current = 0;
-  }, []);
 
   // ---------------------------------------------------------------------------
   // Keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+0, Space, I, R, B
@@ -1404,16 +1349,14 @@ export function MvpEditor() {
       }
       if (e.ctrlKey && e.key === "z") {
         e.preventDefault();
-        regionHistory.undo();
-        undoBakeSnapshot();
+        editorHistory.undo();
         triggerRedraw();
         setStatus("元に戻しました");
         return;
       }
       if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) {
         e.preventDefault();
-        regionHistory.redo();
-        redoBakeSnapshot();
+        editorHistory.redo();
         triggerRedraw();
         setStatus("やり直しました");
         return;
@@ -1482,7 +1425,7 @@ export function MvpEditor() {
       window.removeEventListener("keyup", handleKeyUp);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionHistory, baseState.naturalWidth, baseState.naturalHeight, zoom, undoBakeSnapshot, redoBakeSnapshot, triggerRedraw]);
+  }, [editorHistory, baseState.naturalWidth, baseState.naturalHeight, zoom, triggerRedraw]);
 
   // ---------------------------------------------------------------------------
   // Canvas redraw
@@ -1581,8 +1524,7 @@ export function MvpEditor() {
             const imageData = ctx.getImageData(0, 0, w, h);
             URL.revokeObjectURL(url);
             setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
-            regionHistory.reset([]);
-            resetBakeHistory();
+            editorHistory.reset();
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`画像読み込み完了: ${w}x${h}`);
             // B-1: auto-fit on load
@@ -1612,8 +1554,7 @@ export function MvpEditor() {
         const imageData = ctx.getImageData(0, 0, w, h);
         URL.revokeObjectURL(url);
         setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
-        regionHistory.reset([]);
-        resetBakeHistory();
+        editorHistory.reset();
         setPalette(extractPaletteColors(imageData, 8));
         setStatus(`画像読み込み完了: ${w}x${h}`);
         // B-1: auto-fit on load
@@ -1625,7 +1566,7 @@ export function MvpEditor() {
       };
       img.src = url;
     },
-    [regionHistory, zoom, resetBakeHistory, tryFitContainer]
+    [editorHistory, zoom, tryFitContainer]
   );
 
   // C-2 fix: accept by MIME type OR file extension fallback
@@ -1762,8 +1703,7 @@ export function MvpEditor() {
             bakeData[i] = srcData[i];
           }
           bakeLayerRef.current = newBake;
-          pushBakeSnapshot(newBake);
-          regionHistory.push([]);
+          editorHistory.push([], newBake);
           triggerRedraw();
           addRecentColor(selectedColor);
           setStatus(`滑らか置換 → ${selectedColor}`);
@@ -1787,8 +1727,7 @@ export function MvpEditor() {
           const bakeData2 = newBake2.data;
           for (let idx2 = 0; idx2 < w * hh * 4; idx2++) bakeData2[idx2] = srcData[idx2];
           bakeLayerRef.current = newBake2;
-          pushBakeSnapshot(newBake2);
-          regionHistory.push([...regions]);
+          editorHistory.push([...regions], newBake2);
           triggerRedraw();
           addRecentColor(selectedColor);
           setStatus(`一括置換 (フェザー${featherRadius}): ${replacePixels.length}px → ${selectedColor}`);
@@ -1801,8 +1740,7 @@ export function MvpEditor() {
           color: selectedColor,
           transparent: false,
         };
-        pushBakeSnapshot(bakeLayerRef.current);
-        regionHistory.push([...regions, newRegion]);
+        editorHistory.push([...regions, newRegion], bakeLayerRef.current);
         addRecentColor(selectedColor);
         setStatus(`一括置換: ${replacePixels.length}px → ${selectedColor}`);
         return;
@@ -1833,8 +1771,7 @@ export function MvpEditor() {
         const bakeDataF = newBakeF.data;
         for (let idxF = 0; idxF < w2 * h2 * 4; idxF++) bakeDataF[idxF] = srcDataF[idxF];
         bakeLayerRef.current = newBakeF;
-        pushBakeSnapshot(newBakeF);
-        regionHistory.push([...regions]);
+        editorHistory.push([...regions], newBakeF);
         triggerRedraw();
         if (mode !== "transparent") addRecentColor(selectedColor);
         setStatus(
@@ -1852,8 +1789,7 @@ export function MvpEditor() {
         transparent: mode === "transparent",
       };
 
-      pushBakeSnapshot(bakeLayerRef.current);
-      regionHistory.push([...regions, newRegion]);
+      editorHistory.push([...regions, newRegion], bakeLayerRef.current);
       if (mode !== "transparent") addRecentColor(selectedColor);
       setStatus(
         mode === "transparent"
@@ -1861,7 +1797,7 @@ export function MvpEditor() {
           : `色変更: ${pixels.length}px → ${selectedColor}`
       );
     },
-    [baseState, tolerance, selectedColor, mode, spacePressed, regions, regionHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, featherRadius, pushBakeSnapshot, triggerRedraw, addRecentColor, snapCoord]
+    [baseState, tolerance, selectedColor, mode, spacePressed, regions, editorHistory, getCanvasCoords, includeAntialias, connectivity, smoothReplace, closeRadius, featherRadius, triggerRedraw, addRecentColor, snapCoord]
   );
 
   // ---------------------------------------------------------------------------
@@ -1954,10 +1890,9 @@ export function MvpEditor() {
     brushLastPosRef.current = null;
 
     // Commit stroke to undo history
-    pushBakeSnapshot(bakeLayerRef.current);
-    regionHistory.push([...regions]);
+    editorHistory.push([...regions], bakeLayerRef.current);
     setStatus(`ブラシ描画`);
-  }, [pushBakeSnapshot, regionHistory, regions]);
+  }, [editorHistory, regions]);
 
   /**
    * Merges the current stroke offscreen canvas into bakeLayerRef.
@@ -2057,14 +1992,13 @@ export function MvpEditor() {
 
       const newBake = ctx.getImageData(0, 0, w, h);
       bakeLayerRef.current = newBake;
-      pushBakeSnapshot(newBake);
-      regionHistory.push([...regions]);
+      editorHistory.push([...regions], newBake);
       triggerRedraw();
       addRecentColor(selectedColor);
       setStatus(`テキスト描画: "${draft.value}"`);
       setTextDraft(null);
     },
-    [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
+    [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, opacity, blendMode, fillType, gradientConfig, regions, editorHistory, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
   );
 
   // ---------------------------------------------------------------------------
@@ -2206,8 +2140,7 @@ export function MvpEditor() {
 
       const newBake = ctx.getImageData(0, 0, w, h);
       bakeLayerRef.current = newBake;
-      pushBakeSnapshot(newBake);
-      regionHistory.push([...regions]);
+      editorHistory.push([...regions], newBake);
 
       shapeDraftRef.current = null;
       if (shapeOverlayCanvasRef.current) {
@@ -2219,7 +2152,7 @@ export function MvpEditor() {
       addRecentColor(selectedColor);
       setStatus(`シェイプ描画: ${shapeKind}`);
     },
-    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, opacity, blendMode, fillType, gradientConfig, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
+    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, opacity, blendMode, fillType, gradientConfig, regions, editorHistory, triggerRedraw, addRecentColor, draftRotateDeg, draftFlipX, draftFlipY]
   );
 
   // ---------------------------------------------------------------------------
@@ -2280,11 +2213,10 @@ export function MvpEditor() {
   const handleRemoveRegion = useCallback(
     (id: string) => {
       const next = regions.filter((r) => r.id !== id);
-      pushBakeSnapshot(bakeLayerRef.current);
-      regionHistory.push(next);
+      editorHistory.push(next, bakeLayerRef.current);
       setStatus("リージョンを削除しました");
     },
-    [regions, regionHistory, pushBakeSnapshot]
+    [regions, editorHistory]
   );
 
   // ---------------------------------------------------------------------------
@@ -2363,8 +2295,7 @@ export function MvpEditor() {
             const imageData = ctx.getImageData(0, 0, w, h);
             URL.revokeObjectURL(url);
             setBaseState({ imageData, naturalWidth: w, naturalHeight: h });
-            regionHistory.reset([]);
-            resetBakeHistory();
+            editorHistory.reset();
             setPalette(extractPaletteColors(imageData, 8));
             setStatus(`クリップボードから読み込み: ${w}x${h}`);
             // auto-fit on paste
@@ -2380,7 +2311,7 @@ export function MvpEditor() {
       }
       setStatus("クリップボードに画像がありません");
     }).catch(() => setStatus("クリップボードへのアクセスが拒否されました"));
-  }, [regionHistory, zoom, resetBakeHistory, tryFitContainer]);
+  }, [editorHistory, zoom, tryFitContainer]);
 
   // ---------------------------------------------------------------------------
   // B-1: Transparent white
@@ -2400,11 +2331,10 @@ export function MvpEditor() {
       color: "#ffffff",
       transparent: true,
     };
-    pushBakeSnapshot(bakeLayerRef.current);
-    regionHistory.push([...regions, newRegion]);
+    editorHistory.push([...regions, newRegion], bakeLayerRef.current);
     setStatus(`白を透過: ${pixels.length}px`);
     showToast(`白を透過しました (${pixels.length}px)`);
-  }, [baseState.imageData, regions, regionHistory, pushBakeSnapshot, showToast]);
+  }, [baseState.imageData, regions, editorHistory, showToast]);
 
   // ---------------------------------------------------------------------------
   // B-2: Save brand swatch
@@ -2625,9 +2555,9 @@ export function MvpEditor() {
         <Tooltip label="元に戻す" shortcut="Ctrl+Z">
           <button
             type="button"
-            onClick={() => { regionHistory.undo(); undoBakeSnapshot(); triggerRedraw(); setStatus("元に戻しました"); }}
-            disabled={!regionHistory.canUndo}
-            style={!regionHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            onClick={() => { editorHistory.undo(); triggerRedraw(); setStatus("元に戻しました"); }}
+            disabled={!editorHistory.canUndo}
+            style={!editorHistory.canUndo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
             aria-label="元に戻す"
           >
             <Undo2 size={16} />
@@ -2636,9 +2566,9 @@ export function MvpEditor() {
         <Tooltip label="やり直し" shortcut="Ctrl+Y">
           <button
             type="button"
-            onClick={() => { regionHistory.redo(); redoBakeSnapshot(); triggerRedraw(); setStatus("やり直しました"); }}
-            disabled={!regionHistory.canRedo}
-            style={!regionHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
+            onClick={() => { editorHistory.redo(); triggerRedraw(); setStatus("やり直しました"); }}
+            disabled={!editorHistory.canRedo}
+            style={!editorHistory.canRedo ? { ...iconBtnStyle, opacity: 0.35, pointerEvents: "none" } : iconBtnStyle}
             aria-label="やり直し"
           >
             <Redo2 size={16} />
@@ -2646,7 +2576,7 @@ export function MvpEditor() {
         </Tooltip>
         <button
           type="button"
-          onClick={() => { regionHistory.reset([]); resetBakeHistory(); triggerRedraw(); setStatus("全リセット完了"); }}
+          onClick={() => { editorHistory.reset(); triggerRedraw(); setStatus("全リセット完了"); }}
           disabled={regions.length === 0}
           style={regions.length === 0 ? { ...btnDangerStyle, opacity: 0.35, pointerEvents: "none" } : btnDangerStyle}
         >
