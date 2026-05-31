@@ -1,26 +1,35 @@
 /**
  * useAutoSave.ts
  *
- * React hook that auto-saves the editor project state to localStorage
- * at a 5-minute interval and checks for a saved session on mount.
+ * React hook that auto-saves the editor project state at a 5-minute interval
+ * and checks for a saved session on mount.
  *
- * Storage key: "choco:autosave"
- * Format: JSON-serialized ChocoProjectLite (version 1, imageOmitted: true)
+ * Storage strategy (IndexedDB-first with localStorage fallback):
+ *   Primary:  IndexedDB ("choco-db" / "autosave" / key "project")
+ *             Stores the FULL project including image data (no quota limit).
+ *   Fallback: localStorage key "choco:autosave"
+ *             Stores ChocoProjectLite (imageOmitted: true) when IDB fails.
  *
- * Image data is intentionally excluded from autosave to prevent localStorage
- * quota exhaustion (a full-resolution PNG can exceed the 5-10 MB quota limit).
- * Explicit .choco file saves still include the full image.
- *
- * Note: Full async migration to IndexedDB is deferred to a future issue.
+ * The IDB path stores a full ChocoProject so that image data survives a
+ * browser restart without the user having to re-open the original file.
+ * If IndexedDB is unavailable (private browsing, jsdom, etc.) the hook
+ * silently falls back to the pre-existing localStorage-lite path.
  */
 
 import { useEffect, useRef, useCallback } from "react";
 import {
   serializeProject,
+  deserializeProject,
   deserializeProjectLite,
   type ProjectState,
   type ProjectStateLite,
 } from "../lib/projectIO";
+import {
+  saveProjectToIDB,
+  loadProjectFromIDB,
+  clearProjectFromIDB,
+  isIDBAvailable,
+} from "../lib/projectStorage";
 
 export const AUTOSAVE_KEY = "choco:autosave";
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -33,16 +42,18 @@ export interface UseAutoSaveOptions {
 }
 
 export interface AutoSaveResult {
-  /** Clears the autosave from localStorage (called after explicit save / on discard). */
+  /** Clears the autosave from both IndexedDB and localStorage. */
   clearAutoSave: () => void;
-  /** Returns true if there is an autosave entry in localStorage. */
+  /** Returns true if there is an autosave entry (checks IDB first, then localStorage). */
   hasAutoSave: () => boolean;
   /**
    * Loads and deserializes the autosave entry.
-   * Returns a ProjectStateLite (imageData: null) for lite autosaves, or null
-   * if no autosave exists or deserialization fails.
+   *
+   * IDB path: returns ProjectState (full, with image) if available.
+   * localStorage fallback path: returns ProjectStateLite (imageData: null).
+   * Returns null if no autosave exists or deserialization fails.
    */
-  loadAutoSave: () => Promise<ProjectStateLite | null>;
+  loadAutoSave: () => Promise<ProjectState | ProjectStateLite | null>;
   /** Manually triggers an immediate save (in addition to the interval). */
   saveNow: () => void;
 }
@@ -78,20 +89,52 @@ export function useAutoSave(
     getStateRef.current = getState;
   }, [getState]);
 
-  // The interval-based save — image is excluded to avoid localStorage quota issues.
+  // ---------------------------------------------------------------------------
+  // Core save logic
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Attempts an IndexedDB save with full image data.
+   * On failure, falls back to localStorage with image omitted.
+   */
   const performSave = useCallback(() => {
     const state = getStateRef.current();
     if (!state) return;
+
+    if (isIDBAvailable()) {
+      // IDB path: serialize full project (includes image)
+      const project = serializeProject(state); // includeImage: true (default)
+      saveProjectToIDB(project)
+        .then(() => {
+          onSaveRef.current?.();
+        })
+        .catch((idbErr: unknown) => {
+          console.warn("[useAutoSave] IDB save failed, falling back to localStorage:", idbErr);
+          // localStorage fallback: lite format (no image) to avoid quota
+          _saveToLocalStorage(state);
+        });
+    } else {
+      // IDB unavailable: localStorage-only path
+      _saveToLocalStorage(state);
+    }
+  }, []);
+
+  /** localStorage fallback — lite format (imageOmitted: true). */
+  function _saveToLocalStorage(state: ProjectState): void {
     try {
       const project = serializeProject(state, { includeImage: false });
       const json = JSON.stringify(project);
       localStorage.setItem(AUTOSAVE_KEY, json);
       onSaveRef.current?.();
     } catch (err) {
-      console.warn("[useAutoSave] Failed to autosave:", err);
+      console.warn("[useAutoSave] Failed to autosave to localStorage:", err);
       onErrorRef.current?.(err);
     }
-  }, []);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interval
+  // ---------------------------------------------------------------------------
 
   useEffect(() => {
     if (!enabled) return;
@@ -99,7 +142,18 @@ export function useAutoSave(
     return () => clearInterval(id);
   }, [enabled, performSave]);
 
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
   const clearAutoSave = useCallback(() => {
+    // Clear IDB (async, fire-and-forget)
+    if (isIDBAvailable()) {
+      clearProjectFromIDB().catch((err: unknown) => {
+        console.warn("[useAutoSave] Failed to clear IDB autosave:", err);
+      });
+    }
+    // Always clear localStorage fallback entry too
     try {
       localStorage.removeItem(AUTOSAVE_KEY);
     } catch {
@@ -107,22 +161,56 @@ export function useAutoSave(
     }
   }, []);
 
+  /**
+   * Synchronous presence check.
+   * Returns true if localStorage has an entry (fast, synchronous).
+   * IDB presence requires async; for sync API we use localStorage as sentinel.
+   * Note: IDB may have data even if localStorage is empty (normal after IDB save).
+   * This function errs on the side of "maybe has autosave" — callers should
+   * use loadAutoSave() to confirm.
+   */
   const hasAutoSave = useCallback((): boolean => {
+    // Check localStorage (synchronous)
     try {
-      return localStorage.getItem(AUTOSAVE_KEY) !== null;
+      if (localStorage.getItem(AUTOSAVE_KEY) !== null) return true;
     } catch {
-      return false;
+      // ignore
     }
+    // For IDB we cannot check synchronously; assume available if IDB is reachable.
+    // The actual data presence is confirmed by loadAutoSave().
+    return isIDBAvailable();
   }, []);
 
-  const loadAutoSave = useCallback(async (): Promise<ProjectStateLite | null> => {
+  const loadAutoSave = useCallback(async (): Promise<ProjectState | ProjectStateLite | null> => {
+    // Try IDB first
+    if (isIDBAvailable()) {
+      try {
+        const raw = await loadProjectFromIDB();
+        if (raw !== null) {
+          // Full project with image data
+          try {
+            const state = await deserializeProject(raw);
+            return state;
+          } catch (deserErr) {
+            console.warn("[useAutoSave] IDB data deserialization failed, trying lite:", deserErr);
+            // May be an old lite format stored in IDB — try lite path
+            const lite = deserializeProjectLite(raw);
+            if (lite !== null) return lite;
+          }
+        }
+      } catch (idbErr) {
+        console.warn("[useAutoSave] IDB load failed, falling back to localStorage:", idbErr);
+      }
+    }
+
+    // localStorage fallback
     try {
       const raw = localStorage.getItem(AUTOSAVE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as unknown;
       return deserializeProjectLite(parsed);
     } catch (err) {
-      console.warn("[useAutoSave] Failed to load autosave:", err);
+      console.warn("[useAutoSave] Failed to load autosave from localStorage:", err);
       return null;
     }
   }, []);
