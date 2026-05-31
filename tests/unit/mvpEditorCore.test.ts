@@ -23,6 +23,7 @@ import {
   blurMask,
   removeCollinear,
   simplifyPath,
+  normalizeBbox,
   type PaintRegion,
 } from "../../src/components/MvpEditor/MvpEditor";
 import { hsv2rgb, rgb2hsv } from "../../src/components/MvpEditor/components/HsvPicker";
@@ -812,5 +813,40 @@ describe("closeMask", () => {
     const result = closeMask(pixels, 5, 5, 1);
     // After dilate then erode, isolated single pixel shrinks to nothing
     expect(result.length).toBeLessThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S5+S6: normalizeBbox (shape bounding-box helper)
+// ---------------------------------------------------------------------------
+
+describe("normalizeBbox", () => {
+  it("returns correct bbox when drag goes top-left to bottom-right", () => {
+    const r = normalizeBbox(10, 20, 50, 80);
+    expect(r).toEqual({ x: 10, y: 20, w: 40, h: 60 });
+  });
+
+  it("normalizes reversed coordinates (drag bottom-right to top-left)", () => {
+    const r = normalizeBbox(50, 80, 10, 20);
+    expect(r).toEqual({ x: 10, y: 20, w: 40, h: 60 });
+  });
+
+  it("returns zero dimensions for single-point drag", () => {
+    const r = normalizeBbox(30, 30, 30, 30);
+    expect(r).toEqual({ x: 30, y: 30, w: 0, h: 0 });
+  });
+
+  it("handles negative-direction drags correctly", () => {
+    const r = normalizeBbox(100, 200, 40, 50);
+    expect(r.x).toBe(40);
+    expect(r.y).toBe(50);
+    expect(r.w).toBe(60);
+    expect(r.h).toBe(150);
+  });
+
+  it("produces same result regardless of drag direction", () => {
+    const a = normalizeBbox(5, 10, 25, 40);
+    const b = normalizeBbox(25, 40, 5, 10);
+    expect(a).toEqual(b);
   });
 });

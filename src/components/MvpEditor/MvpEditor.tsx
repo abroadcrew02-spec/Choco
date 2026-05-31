@@ -12,6 +12,8 @@ import {
   FileCode2,
   Download,
   Wand2,
+  Type,
+  Square,
 } from "lucide-react";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useZoomPan } from "./hooks/useZoomPan";
@@ -76,7 +78,53 @@ interface BaseState {
   naturalHeight: number;
 }
 
-type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all" | "brush";
+type EditorMode = "color" | "transparent" | "eyedropper" | "replace-all" | "brush" | "text" | "shape";
+
+type ShapeKind = "rect" | "circle" | "polygon" | "star";
+
+interface TextDraft {
+  x: number;
+  y: number;
+  value: string;
+}
+
+interface ShapeDraft {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  active: boolean;
+}
+
+// Palette sets stored in LocalStorage
+const PALETTE_SETS_KEY = "choco_palette_sets";
+const PALETTE_SETS_MAX = 10;
+
+interface PaletteSet {
+  id: string;
+  name: string;
+  colors: string[];
+}
+
+function loadPaletteSets(): PaletteSet[] {
+  try {
+    const raw = localStorage.getItem(PALETTE_SETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+function savePaletteSets(sets: PaletteSet[]): void {
+  try {
+    localStorage.setItem(PALETTE_SETS_KEY, JSON.stringify(sets));
+  } catch {
+    // ignore quota errors
+  }
+}
 
 // Brand swatches stored in LocalStorage
 const BRAND_SWATCHES_KEY = "choco_brand_swatches";
@@ -959,6 +1007,95 @@ function rewriteSvgForHighResRasterize(svgText: string): {
 }
 
 /**
+ * Returns the bounding box corners (normalized so x0<=x1, y0<=y1) from
+ * two drag points.
+ */
+export function normalizeBbox(
+  x0: number, y0: number, x1: number, y1: number
+): { x: number; y: number; w: number; h: number } {
+  const x = Math.min(x0, x1);
+  const y = Math.min(y0, y1);
+  const w = Math.abs(x1 - x0);
+  const h = Math.abs(y1 - y0);
+  return { x, y, w, h };
+}
+
+/**
+ * Draws a shape (rect/circle/polygon/star) onto a 2D canvas context.
+ * Applies fill and/or stroke depending on fill/stroke settings.
+ */
+export function drawShape(
+  ctx: CanvasRenderingContext2D,
+  kind: ShapeKind,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fillColor: string | null,
+  strokeColor: string | null,
+  strokeWidth: number,
+  polyVertices: number
+): void {
+  if (w <= 0 || h <= 0) return;
+
+  ctx.save();
+  ctx.beginPath();
+
+  if (kind === "rect") {
+    ctx.rect(x, y, w, h);
+  } else if (kind === "circle") {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const rx = w / 2;
+    const ry = h / 2;
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  } else if (kind === "polygon") {
+    const n = Math.max(3, Math.min(12, polyVertices));
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const rx = w / 2;
+    const ry = h / 2;
+    for (let i = 0; i < n; i++) {
+      const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+      const px = cx + rx * Math.cos(angle);
+      const py = cy + ry * Math.sin(angle);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  } else if (kind === "star") {
+    const n = 5;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const outerRx = w / 2;
+    const outerRy = h / 2;
+    const innerRx = outerRx * 0.4;
+    const innerRy = outerRy * 0.4;
+    for (let i = 0; i < n * 2; i++) {
+      const angle = (Math.PI * i) / n - Math.PI / 2;
+      const rx2 = i % 2 === 0 ? outerRx : innerRx;
+      const ry2 = i % 2 === 0 ? outerRy : innerRy;
+      const px = cx + rx2 * Math.cos(angle);
+      const py = cy + ry2 * Math.sin(angle);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  if (fillColor) {
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+  }
+  if (strokeColor && strokeWidth > 0) {
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
  * Returns true if the file should be accepted as an image based on
  * MIME type or file extension (C-2 fix: extension fallback for WebView2).
  */
@@ -1043,6 +1180,28 @@ export function MvpEditor() {
   // Ref for the color swatch button (to position the HSV picker)
   const colorSwatchRef = useRef<HTMLButtonElement>(null);
 
+  // S5-2: palette sets
+  const [paletteSets, setPaletteSets] = useState<PaletteSet[]>(loadPaletteSets);
+  const [activePaletteSetId, setActivePaletteSetId] = useState<string | null>(null);
+
+  // S5-1: text tool draft
+  const [textDraft, setTextDraft] = useState<TextDraft | null>(null);
+  const [textFontFamily, setTextFontFamily] = useState<string>("sans-serif");
+  const [textFontSize, setTextFontSize] = useState<number>(48);
+  const textInputRef = useRef<HTMLInputElement>(null);
+
+  // S6-1: shape tool state
+  const [shapeKind, setShapeKind] = useState<ShapeKind>("rect");
+  const [polyVertices, setPolyVertices] = useState<number>(6);
+  const shapeDraftRef = useRef<ShapeDraft | null>(null);
+  const shapeOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // S6-2: stroke/fill state
+  const [strokeColor, setStrokeColor] = useState<string>("#000000");
+  const [strokeWidth, setStrokeWidth] = useState<number>(2);
+  const [useFill, setUseFill] = useState<boolean>(true);
+  const [useStroke, setUseStroke] = useState<boolean>(true);
+
   const zoom = useZoomPan(spacePressed);
 
   // ---------------------------------------------------------------------------
@@ -1072,6 +1231,19 @@ export function MvpEditor() {
   const triggerRedraw = useCallback(() => {
     setRedrawTick((n) => n + 1);
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // S5-1: Auto-focus text input when textDraft is set
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (textDraft !== null) {
+      // Use rAF to ensure the input has rendered before focusing
+      requestAnimationFrame(() => {
+        textInputRef.current?.focus();
+      });
+    }
+  }, [textDraft]);
 
   // ---------------------------------------------------------------------------
   // bakeLayer helpers
@@ -1178,6 +1350,21 @@ export function MvpEditor() {
         setMode("replace-all");
         return;
       }
+      // T = text tool
+      if (!e.ctrlKey && !e.altKey && e.key === "t") {
+        setMode("text");
+        return;
+      }
+      // U = shape tool
+      if (!e.ctrlKey && !e.altKey && e.key === "u") {
+        setMode("shape");
+        return;
+      }
+      // Escape: cancel text draft
+      if (e.key === "Escape") {
+        setTextDraft(null);
+        return;
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -1210,6 +1397,10 @@ export function MvpEditor() {
     } else {
       const composited = compositeRegions(baseState.imageData, regions, bakeLayerRef.current);
       ctx.putImageData(composited, 0, 0);
+    }
+    // S6-1: Draw shape overlay on top (preview during drag)
+    if (!comparing && shapeOverlayCanvasRef.current) {
+      ctx.drawImage(shapeOverlayCanvasRef.current, 0, 0);
     }
   // redrawTick is intentionally included so brush strokes (ref mutations) trigger redraws
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1390,11 +1581,18 @@ export function MvpEditor() {
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (spacePressed) return;
       if (!baseState.imageData) return;
-      // brush mode uses mousedown/mousemove/mouseup, not click
-      if (mode === "brush") return;
+      // brush/shape mode uses mousedown/mousemove/mouseup, not click
+      if (mode === "brush" || mode === "shape") return;
       const coords = getCanvasCoords(e);
       if (!coords) return;
       const { x, y } = coords;
+
+      // Text mode: place text input at click position
+      if (mode === "text") {
+        setTextDraft({ x, y, value: "" });
+        // Focus will be handled by useEffect after render
+        return;
+      }
 
       // Eyedropper mode: pick color and switch back to color mode
       if (mode === "eyedropper") {
@@ -1654,6 +1852,198 @@ export function MvpEditor() {
   }
 
   // ---------------------------------------------------------------------------
+  // S5-1: Text tool: commit draft to bake layer
+  // ---------------------------------------------------------------------------
+
+  const commitTextDraft = useCallback(
+    (draft: TextDraft) => {
+      if (!baseState.imageData || draft.value.trim() === "") {
+        setTextDraft(null);
+        return;
+      }
+      const w = baseState.naturalWidth;
+      const h = baseState.naturalHeight;
+
+      if (!bakeLayerRef.current) {
+        bakeLayerRef.current = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
+      }
+
+      const offscreen = document.createElement("canvas");
+      offscreen.width = w;
+      offscreen.height = h;
+      const ctx = offscreen.getContext("2d")!;
+
+      // Draw existing bake layer first
+      ctx.putImageData(bakeLayerRef.current, 0, 0);
+
+      // Draw text
+      const fontStr = `${textFontSize}px ${textFontFamily}`;
+      ctx.font = fontStr;
+      ctx.textBaseline = "top";
+
+      if (useFill) {
+        ctx.fillStyle = selectedColor;
+        ctx.fillText(draft.value, draft.x, draft.y);
+      }
+      if (useStroke && strokeWidth > 0) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth;
+        ctx.strokeText(draft.value, draft.x, draft.y);
+      }
+
+      const newBake = ctx.getImageData(0, 0, w, h);
+      bakeLayerRef.current = newBake;
+      pushBakeSnapshot(newBake);
+      regionHistory.push([...regions]);
+      triggerRedraw();
+      addRecentColor(selectedColor);
+      setStatus(`テキスト描画: "${draft.value}"`);
+      setTextDraft(null);
+    },
+    [baseState, selectedColor, strokeColor, strokeWidth, useFill, useStroke, textFontFamily, textFontSize, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
+  );
+
+  // ---------------------------------------------------------------------------
+  // S6-1: Shape tool: draw draft overlay
+  // ---------------------------------------------------------------------------
+
+  const drawShapeOverlay = useCallback(
+    (draft: ShapeDraft) => {
+      if (!baseState.imageData) return;
+      const w = baseState.naturalWidth;
+      const h = baseState.naturalHeight;
+
+      // Ensure overlay canvas exists and matches image size
+      if (!shapeOverlayCanvasRef.current ||
+          shapeOverlayCanvasRef.current.width !== w ||
+          shapeOverlayCanvasRef.current.height !== h) {
+        const oc = document.createElement("canvas");
+        oc.width = w;
+        oc.height = h;
+        shapeOverlayCanvasRef.current = oc;
+      }
+
+      const oc = shapeOverlayCanvasRef.current;
+      const octx = oc.getContext("2d")!;
+      octx.clearRect(0, 0, w, h);
+
+      const { x, y, w: bw, h: bh } = normalizeBbox(draft.startX, draft.startY, draft.endX, draft.endY);
+      drawShape(
+        octx,
+        shapeKind,
+        x, y, bw, bh,
+        useFill ? selectedColor : null,
+        useStroke && strokeWidth > 0 ? strokeColor : null,
+        strokeWidth,
+        polyVertices
+      );
+
+      // Merge overlay into bake for preview via triggerRedraw
+      // We store overlay in a separate ref and composite in the redraw effect
+    },
+    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices]
+  );
+
+  const commitShapeDraft = useCallback(
+    (draft: ShapeDraft) => {
+      if (!baseState.imageData) return;
+      const w = baseState.naturalWidth;
+      const h = baseState.naturalHeight;
+      const { x, y, w: bw, h: bh } = normalizeBbox(draft.startX, draft.startY, draft.endX, draft.endY);
+      if (bw < 2 && bh < 2) {
+        shapeDraftRef.current = null;
+        triggerRedraw();
+        return;
+      }
+
+      if (!bakeLayerRef.current) {
+        bakeLayerRef.current = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
+      }
+
+      const offscreen = document.createElement("canvas");
+      offscreen.width = w;
+      offscreen.height = h;
+      const ctx = offscreen.getContext("2d")!;
+      ctx.putImageData(bakeLayerRef.current, 0, 0);
+
+      drawShape(
+        ctx,
+        shapeKind,
+        x, y, bw, bh,
+        useFill ? selectedColor : null,
+        useStroke && strokeWidth > 0 ? strokeColor : null,
+        strokeWidth,
+        polyVertices
+      );
+
+      const newBake = ctx.getImageData(0, 0, w, h);
+      bakeLayerRef.current = newBake;
+      pushBakeSnapshot(newBake);
+      regionHistory.push([...regions]);
+
+      shapeDraftRef.current = null;
+      if (shapeOverlayCanvasRef.current) {
+        const oc = shapeOverlayCanvasRef.current;
+        const octx = oc.getContext("2d")!;
+        octx.clearRect(0, 0, oc.width, oc.height);
+      }
+      triggerRedraw();
+      addRecentColor(selectedColor);
+      setStatus(`シェイプ描画: ${shapeKind}`);
+    },
+    [baseState, shapeKind, selectedColor, strokeColor, strokeWidth, useFill, useStroke, polyVertices, regions, regionHistory, pushBakeSnapshot, triggerRedraw, addRecentColor]
+  );
+
+  // ---------------------------------------------------------------------------
+  // S6-1: Shape mouse handlers
+  // ---------------------------------------------------------------------------
+
+  const handleShapeMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (mode !== "shape" || spacePressed || !baseState.imageData) return;
+      const coords = getCanvasCoords(e);
+      if (!coords) return;
+      const { x, y } = coords;
+      shapeDraftRef.current = { startX: x, startY: y, endX: x, endY: y, active: true };
+    },
+    [mode, spacePressed, baseState, getCanvasCoords]
+  );
+
+  const handleShapeMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (mode !== "shape" || !shapeDraftRef.current?.active || !baseState.imageData) return;
+      const coords = getCanvasCoords(e);
+      if (!coords) return;
+      let { x, y } = coords;
+      const draft = shapeDraftRef.current;
+
+      // Shift: constrain to square/circle
+      if (e.shiftKey) {
+        const dx = x - draft.startX;
+        const dy = y - draft.startY;
+        const size = Math.min(Math.abs(dx), Math.abs(dy));
+        x = draft.startX + Math.sign(dx) * size;
+        y = draft.startY + Math.sign(dy) * size;
+      }
+
+      shapeDraftRef.current = { ...draft, endX: x, endY: y };
+      drawShapeOverlay(shapeDraftRef.current);
+      triggerRedraw();
+    },
+    [mode, baseState, getCanvasCoords, drawShapeOverlay, triggerRedraw]
+  );
+
+  const handleShapeMouseUp = useCallback(
+    () => {
+      if (mode !== "shape" || !shapeDraftRef.current?.active) return;
+      const draft = shapeDraftRef.current;
+      shapeDraftRef.current = { ...draft, active: false };
+      commitShapeDraft(draft);
+    },
+    [mode, commitShapeDraft]
+  );
+
+  // ---------------------------------------------------------------------------
   // Remove a specific region by id (mapping table undo)
   // ---------------------------------------------------------------------------
 
@@ -1761,6 +2151,54 @@ export function MvpEditor() {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // S5-2: Palette sets
+  // ---------------------------------------------------------------------------
+
+  const handleAddPaletteSet = useCallback(() => {
+    const name = `パレット${paletteSets.length + 1}`;
+    const newSet: PaletteSet = { id: `ps-${Date.now()}`, name, colors: [] };
+    setPaletteSets((prev) => {
+      const next = [...prev, newSet].slice(-PALETTE_SETS_MAX);
+      savePaletteSets(next);
+      return next;
+    });
+    setActivePaletteSetId(newSet.id);
+  }, [paletteSets.length]);
+
+  const handleAddColorToPaletteSet = useCallback((setId: string) => {
+    setPaletteSets((prev) => {
+      const next = prev.map((ps) => {
+        if (ps.id !== setId) return ps;
+        if (ps.colors.includes(selectedColor)) return ps;
+        return { ...ps, colors: [...ps.colors, selectedColor].slice(0, 16) };
+      });
+      savePaletteSets(next);
+      return next;
+    });
+  }, [selectedColor]);
+
+  const handleRemoveColorFromPaletteSet = useCallback((setId: string, hex: string) => {
+    setPaletteSets((prev) => {
+      const next = prev.map((ps) => {
+        if (ps.id !== setId) return ps;
+        return { ...ps, colors: ps.colors.filter((c) => c !== hex) };
+      });
+      savePaletteSets(next);
+      return next;
+    });
+  }, []);
+
+  const handleDeletePaletteSet = useCallback((setId: string) => {
+    setPaletteSets((prev) => {
+      const next = prev.filter((ps) => ps.id !== setId);
+      savePaletteSets(next);
+      return next;
+    });
+    setActivePaletteSetId((prev) => (prev === setId ? null : prev));
+  }, []);
+
+
+  // ---------------------------------------------------------------------------
   // Export handlers
   // ---------------------------------------------------------------------------
 
@@ -1824,9 +2262,13 @@ export function MvpEditor() {
         ? "crosshair"
         : mode === "brush"
           ? "crosshair"
-          : mode === "color" || mode === "transparent"
-            ? baseState.imageData ? "crosshair" : "default"
-            : "default";
+          : mode === "text"
+            ? "text"
+            : mode === "shape"
+              ? "crosshair"
+              : mode === "color" || mode === "transparent"
+                ? baseState.imageData ? "crosshair" : "default"
+                : "default";
 
   const zoomPercent = Math.round(zoom.scale * 100);
 
@@ -1839,6 +2281,8 @@ export function MvpEditor() {
     mode === "transparent" ? "透過 / Transparent" :
     mode === "eyedropper" ? "スポイト / Eyedropper" :
     mode === "brush" ? "ブラシ / Brush" :
+    mode === "text" ? "テキスト / Text" :
+    mode === "shape" ? "シェイプ / Shape" :
     "一括置換 / Replace-All";
 
   // ---------------------------------------------------------------------------
@@ -2162,6 +2606,123 @@ export function MvpEditor() {
           </button>
         )}
 
+        {/* S5-1: Text tool options */}
+        {mode === "text" && (
+          <>
+            <div style={dividerStyle} />
+            <select
+              value={textFontFamily}
+              onChange={(e) => setTextFontFamily(e.target.value)}
+              style={selectStyle}
+              title="フォント"
+            >
+              <option value="sans-serif">Sans-serif</option>
+              <option value="serif">Serif</option>
+              <option value="monospace">Monospace</option>
+              <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
+              <option value="cursive">Cursive</option>
+              <option value="fantasy">Fantasy</option>
+            </select>
+            <span style={labelStyle}>サイズ: {textFontSize}</span>
+            <input
+              type="range"
+              min={10}
+              max={200}
+              value={textFontSize}
+              onChange={(e) => setTextFontSize(Number(e.target.value))}
+              style={{ width: 72 }}
+              title="フォントサイズ (10-200px)"
+            />
+          </>
+        )}
+
+        {/* S6-2: Stroke/Fill options — text and shape modes */}
+        {(mode === "text" || mode === "shape") && (
+          <>
+            <div style={dividerStyle} />
+            <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={useFill}
+                onChange={(e) => setUseFill(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              塗り
+            </label>
+            <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={useStroke}
+                onChange={(e) => setUseStroke(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              線
+            </label>
+            {useStroke && (
+              <>
+                <input
+                  type="color"
+                  value={strokeColor}
+                  onChange={(e) => setStrokeColor(e.target.value)}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    cursor: "pointer",
+                    border: `1px solid ${T.color.borderMid}`,
+                    borderRadius: T.radius.sm,
+                    background: "none",
+                    padding: 0,
+                    outline: "none",
+                  }}
+                  title="線色"
+                />
+                <span style={labelStyle}>線幅: {strokeWidth}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={20}
+                  value={strokeWidth}
+                  onChange={(e) => setStrokeWidth(Number(e.target.value))}
+                  style={{ width: 62 }}
+                  title="線幅 (0-20px)"
+                />
+              </>
+            )}
+          </>
+        )}
+
+        {/* S6-1: Shape kind selector */}
+        {mode === "shape" && (
+          <>
+            <div style={dividerStyle} />
+            <select
+              value={shapeKind}
+              onChange={(e) => setShapeKind(e.target.value as ShapeKind)}
+              style={selectStyle}
+              title="シェイプの種類"
+            >
+              <option value="rect">矩形</option>
+              <option value="circle">楕円</option>
+              <option value="polygon">多角形</option>
+              <option value="star">星</option>
+            </select>
+            {shapeKind === "polygon" && (
+              <>
+                <span style={labelStyle}>辺数: {polyVertices}</span>
+                <input
+                  type="range"
+                  min={3}
+                  max={12}
+                  value={polyVertices}
+                  onChange={(e) => setPolyVertices(Number(e.target.value))}
+                  style={{ width: 54 }}
+                  title="多角形の辺数 (3-12)"
+                />
+              </>
+            )}
+          </>
+        )}
+
         {/* Before/after comparison */}
         <button
           type="button"
@@ -2240,6 +2801,28 @@ export function MvpEditor() {
               aria-label="ブラシ"
             >
               <Paintbrush size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip label="テキスト (T)">
+            <button
+              type="button"
+              aria-pressed={mode === "text" ? "true" : "false"}
+              onClick={() => setMode("text")}
+              style={mode === "text" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              aria-label="テキスト"
+            >
+              <Type size={18} />
+            </button>
+          </Tooltip>
+          <Tooltip label="シェイプ (U)">
+            <button
+              type="button"
+              aria-pressed={mode === "shape" ? "true" : "false"}
+              onClick={() => setMode("shape")}
+              style={mode === "shape" ? leftToolBtnActiveStyle : leftToolBtnStyle}
+              aria-label="シェイプ"
+            >
+              <Square size={18} />
             </button>
           </Tooltip>
         </div>
@@ -2329,11 +2912,53 @@ export function MvpEditor() {
                 width={baseState.naturalWidth}
                 height={baseState.naturalHeight}
                 onClick={handleCanvasClick}
-                onMouseDown={handleBrushMouseDown}
-                onMouseMove={(e) => { handleCanvasMouseMove(e); handleBrushMouseMove(e); }}
-                onMouseUp={handleBrushMouseUp}
-                onMouseLeave={() => { handleCanvasMouseLeave(); handleBrushMouseUp(); }}
+                onMouseDown={(e) => { handleBrushMouseDown(e); handleShapeMouseDown(e); }}
+                onMouseMove={(e) => { handleCanvasMouseMove(e); handleBrushMouseMove(e); handleShapeMouseMove(e); }}
+                onMouseUp={() => { handleBrushMouseUp(); handleShapeMouseUp(); }}
+                onMouseLeave={() => { handleCanvasMouseLeave(); handleBrushMouseUp(); handleShapeMouseUp(); }}
                 style={{ cursor: canvasCursor, display: "block" } as React.CSSProperties}
+              />
+            </div>
+          )}
+
+          {/* S5-1: Text draft input overlay */}
+          {textDraft !== null && baseState.imageData && (
+            <div
+              style={{
+                position: "absolute",
+                left: zoom.offsetX + textDraft.x * zoom.scale,
+                top: zoom.offsetY + textDraft.y * zoom.scale,
+                zIndex: 500,
+                pointerEvents: "auto",
+              }}
+            >
+              <input
+                ref={textInputRef}
+                type="text"
+                value={textDraft.value}
+                onChange={(e) => setTextDraft((d) => d ? { ...d, value: e.target.value } : null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (textDraft) commitTextDraft(textDraft);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setTextDraft(null);
+                  }
+                }}
+                placeholder="テキストを入力してEnter"
+                style={{
+                  fontSize: Math.max(10, textFontSize * zoom.scale),
+                  fontFamily: textFontFamily,
+                  color: selectedColor,
+                  background: "rgba(0,0,0,0.55)",
+                  border: `1px dashed ${T.color.accent}`,
+                  borderRadius: T.radius.sm,
+                  padding: "2px 4px",
+                  outline: "none",
+                  minWidth: 120,
+                  caretColor: T.color.accent,
+                }}
               />
             </div>
           )}
@@ -2496,6 +3121,125 @@ export function MvpEditor() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* S5-2: Palette sets */}
+              {showPalette && (
+                <div style={rightPanelSectionStyle}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: T.space.xs }}>
+                    <div style={rightPanelSectionHeaderStyle}>パレットセット</div>
+                    <button
+                      type="button"
+                      onClick={handleAddPaletteSet}
+                      style={{ ...btnStyle, padding: "1px 6px", fontSize: T.font.badge }}
+                      title="新しいパレットを追加"
+                    >
+                      + 新しいパレット
+                    </button>
+                  </div>
+                  {paletteSets.length === 0 && (
+                    <div style={{ color: T.color.textDim, fontSize: T.font.badge }}>パレットがありません</div>
+                  )}
+                  {paletteSets.map((ps) => (
+                    <div key={ps.id} style={{ marginBottom: T.space.xs }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                        <button
+                          type="button"
+                          onClick={() => setActivePaletteSetId(activePaletteSetId === ps.id ? null : ps.id)}
+                          style={{
+                            flex: 1,
+                            textAlign: "left",
+                            background: activePaletteSetId === ps.id ? T.color.bgElevated : "transparent",
+                            color: activePaletteSetId === ps.id ? T.color.textPrimary : T.color.textMuted,
+                            border: `1px solid ${activePaletteSetId === ps.id ? T.color.accent : T.color.border}`,
+                            borderRadius: T.radius.sm,
+                            padding: "2px 6px",
+                            fontSize: T.font.badge,
+                            cursor: "pointer",
+                            fontFamily: T.font.family,
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            textOverflow: "ellipsis",
+                          }}
+                          title={ps.name}
+                        >
+                          {ps.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePaletteSet(ps.id)}
+                          style={sidebarRemoveBtnStyle}
+                          title="パレットを削除"
+                        >
+                          x
+                        </button>
+                      </div>
+                      {activePaletteSetId === ps.id && (
+                        <div>
+                          <div style={{ ...swatchGridStyle, marginBottom: 4 }}>
+                            {ps.colors.map((hex) => (
+                              <div key={hex} style={{ position: "relative", display: "inline-flex" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedColor(hex);
+                                    if (mode !== "color" && mode !== "replace-all" && mode !== "text" && mode !== "shape") setMode("color");
+                                  }}
+                                  title={hex.toUpperCase()}
+                                  style={{
+                                    width: 22,
+                                    height: 22,
+                                    background: hex,
+                                    border: selectedColor === hex
+                                      ? `2px solid ${T.color.accent}`
+                                      : `1px solid ${T.color.borderMid}`,
+                                    borderRadius: T.radius.sm,
+                                    cursor: "pointer",
+                                    padding: 0,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveColorFromPaletteSet(ps.id, hex)}
+                                  title={`${hex.toUpperCase()} を削除`}
+                                  style={{
+                                    position: "absolute",
+                                    top: -4,
+                                    right: -4,
+                                    width: 12,
+                                    height: 12,
+                                    background: T.color.swatchRemoveBg,
+                                    color: T.color.textPrimary,
+                                    border: "none",
+                                    borderRadius: "50%",
+                                    cursor: "pointer",
+                                    fontSize: 8,
+                                    lineHeight: "12px",
+                                    padding: 0,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAddColorToPaletteSet(ps.id)}
+                            style={{ ...btnStyle, padding: "1px 6px", fontSize: T.font.badge, width: "100%" }}
+                            title={`現在の色 ${selectedColor.toUpperCase()} をパレットに追加`}
+                          >
+                            + 現在の色を追加
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
 
