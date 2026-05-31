@@ -22,6 +22,7 @@ const SHORTCUTS: { key: string; action: string; isSection?: boolean }[] = [
   { key: "Ctrl+Y", action: "やり直し" },
   { key: "Ctrl+0", action: "画面にフィット" },
   { key: "Ctrl+V", action: "クリップボードから貼り付け" },
+  { key: "Ctrl+Shift+V", action: "参照画像として貼り付け" },
   { key: "Esc", action: "HSVピッカーを閉じる" },
   // Tool shortcuts section
   { key: "ツール切替", action: "", isSection: true },

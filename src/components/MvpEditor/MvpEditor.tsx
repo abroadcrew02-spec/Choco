@@ -350,6 +350,10 @@ export function MvpEditor() {
   // Issue #9: canvas size modal
   const [canvasSizeModalOpen, setCanvasSizeModalOpen] = useState<boolean>(false);
 
+  // Issue #24: reference layer for tracing
+  const [referenceImage, setReferenceImage] = useState<ImageData | null>(null);
+  const [referenceOpacity, setReferenceOpacity] = useState<number>(50);
+
   const zoom = useZoomPan(spacePressed);
 
   // ---------------------------------------------------------------------------
@@ -496,8 +500,14 @@ export function MvpEditor() {
         handleCopyToClipboard();
         return;
       }
+      // Ctrl+Shift+V: paste image as reference layer (Issue #24)
+      if (e.ctrlKey && e.shiftKey && e.key === "V") {
+        e.preventDefault();
+        handleReferencePaste();
+        return;
+      }
       // Ctrl+V: paste image from clipboard (B-1)
-      if (e.ctrlKey && e.key === "v") {
+      if (e.ctrlKey && !e.shiftKey && e.key === "v") {
         e.preventDefault();
         handleClipboardPaste();
         return;
@@ -570,6 +580,18 @@ export function MvpEditor() {
     if (!comparing && shapeOverlayCanvasRef.current) {
       ctx.drawImage(shapeOverlayCanvasRef.current, 0, 0);
     }
+    // Issue #24: Draw reference image overlay (above base+regions, below grid)
+    if (!comparing && referenceImage) {
+      const refOffscreen = document.createElement("canvas");
+      refOffscreen.width = referenceImage.width;
+      refOffscreen.height = referenceImage.height;
+      const refCtx = refOffscreen.getContext("2d")!;
+      refCtx.putImageData(referenceImage, 0, 0);
+      ctx.save();
+      ctx.globalAlpha = referenceOpacity / 100;
+      ctx.drawImage(refOffscreen, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    }
     // S8: Draw grid overlay
     if (!comparing && gridEnabled && gridSize > 0) {
       const w = canvas.width;
@@ -591,7 +613,7 @@ export function MvpEditor() {
     }
   // redrawTick is intentionally included so brush strokes (ref mutations) trigger redraws
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseState, regions, comparing, redrawTick, gridEnabled, gridSize]);
+  }, [baseState, regions, comparing, redrawTick, gridEnabled, gridSize, referenceImage, referenceOpacity]);
 
   // ---------------------------------------------------------------------------
   // Image loading
@@ -1438,6 +1460,61 @@ export function MvpEditor() {
   }, [editorHistory, tryFitContainer]);
 
   // ---------------------------------------------------------------------------
+  // Issue #24: Paste image as reference layer (Ctrl+Shift+V)
+  // ---------------------------------------------------------------------------
+
+  const handleReferencePaste = useCallback(async () => {
+    if (!navigator.clipboard?.read) {
+      setStatus("クリップボードAPIが利用できません");
+      return;
+    }
+    let items: ClipboardItems;
+    try {
+      items = await navigator.clipboard.read();
+    } catch {
+      setStatus("クリップボードへのアクセスが拒否されました");
+      return;
+    }
+    for (const item of items) {
+      const imageType = item.types.find((t) => t.startsWith("image/"));
+      if (!imageType) continue;
+      let blob: Blob;
+      try {
+        blob = await item.getType(imageType);
+      } catch {
+        setStatus("クリップボード読み込みエラー");
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => {
+          setStatus("参照画像の読み込みに失敗しました");
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        img.src = url;
+      });
+      if (!img.naturalWidth) return;
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const offscreen = document.createElement("canvas");
+      offscreen.width = w;
+      offscreen.height = h;
+      const ctx = offscreen.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      URL.revokeObjectURL(url);
+      setReferenceImage(imageData);
+      setStatus(`参照画像を設定しました: ${w}x${h}`);
+      showToast(`参照画像を設定しました (${w}x${h})`);
+      return;
+    }
+    setStatus("クリップボードに画像がありません");
+  }, [showToast]);
+
+  // ---------------------------------------------------------------------------
   // Issue #8: Copy composited canvas to clipboard as PNG
   // ---------------------------------------------------------------------------
 
@@ -2105,6 +2182,44 @@ export function MvpEditor() {
               <Frame size={16} />
             </button>
           </Tooltip>
+
+          <div style={dividerStyle} />
+
+          {/* Issue #24: Reference layer controls */}
+          <Tooltip label="参照画像を貼る (Ctrl+Shift+V)">
+            <button
+              type="button"
+              onClick={handleReferencePaste}
+              style={referenceImage ? { ...iconBtnStyle, background: T.color.accent, border: `1px solid ${T.color.accent}` } : iconBtnStyle}
+              aria-label="参照画像を貼る"
+              aria-pressed={referenceImage ? "true" : "false"}
+            >
+              <Layers size={16} />
+            </button>
+          </Tooltip>
+          {referenceImage && (
+            <>
+              <span style={labelStyle}>参照: {referenceOpacity}%</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={referenceOpacity}
+                onChange={(e) => setReferenceOpacity(Number(e.target.value))}
+                style={{ width: 62 }}
+                title={`参照画像の不透明度: ${referenceOpacity}%`}
+              />
+              <button
+                type="button"
+                onClick={() => { setReferenceImage(null); setStatus("参照画像をクリアしました"); }}
+                style={btnStyle}
+                title="参照画像をクリア"
+                aria-label="参照画像をクリア"
+              >
+                参照クリア
+              </button>
+            </>
+          )}
 
           <div style={dividerStyle} />
 

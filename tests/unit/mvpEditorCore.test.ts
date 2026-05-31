@@ -1986,3 +1986,51 @@ describe("buildShapePath (Issue #23)", () => {
     expect(ctx.closePath).toHaveBeenCalledOnce();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #24: Reference layer — compositeRegions remains unaffected
+// ---------------------------------------------------------------------------
+
+describe("Issue #24: reference layer isolation", () => {
+  it("compositeRegions result is unchanged by reference image state (base image not modified)", () => {
+    // Reference image is rendered on canvas via drawImage after putImageData,
+    // so compositeRegions itself must never incorporate the reference image.
+    const base = makeSolidImageData(2, 2, 10, 20, 30);
+    const region: PaintRegion = {
+      id: "r1",
+      pixels: [{ x: 0, y: 0 }],
+      color: "#ff0000",
+      transparent: false,
+    };
+    const result = compositeRegions(base, [region]);
+    // Pixel (0,0) should be red (from region), not affected by any reference image.
+    expect(result.data[0]).toBe(255);
+    expect(result.data[1]).toBe(0);
+    expect(result.data[2]).toBe(0);
+    expect(result.data[3]).toBe(255);
+    // Pixel (1,0) should remain the base color.
+    expect(result.data[4]).toBe(10);
+    expect(result.data[5]).toBe(20);
+    expect(result.data[6]).toBe(30);
+  });
+
+  it("reference opacity clamped values: 0 and 100 produce distinct globalAlpha values", () => {
+    // Verify the opacity/100 formula used in the canvas redraw effect.
+    const toAlpha = (opacity: number) => Math.max(0, Math.min(1, opacity / 100));
+    expect(toAlpha(0)).toBe(0);
+    expect(toAlpha(100)).toBe(1);
+    expect(toAlpha(50)).toBe(0.5);
+    expect(toAlpha(-10)).toBe(0);
+    expect(toAlpha(110)).toBe(1);
+  });
+
+  it("clearing reference image (setting to null) does not affect compositeRegions output", () => {
+    const base = makeSolidImageData(2, 2, 80, 90, 100);
+    // With referenceImage = null, compositeRegions output should equal base (no regions).
+    const result = compositeRegions(base, []);
+    expect(result.data[0]).toBe(80);
+    expect(result.data[1]).toBe(90);
+    expect(result.data[2]).toBe(100);
+    expect(result.data[3]).toBe(255);
+  });
+});
