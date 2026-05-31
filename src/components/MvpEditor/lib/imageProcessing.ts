@@ -659,23 +659,21 @@ export function buildSvg(
     .filter((r) => r.transparent)
     .flatMap((r) => r.pixels);
 
-  const maskRects =
+  const maskPath =
     transparentPixels.length > 0
-      ? transparentPixels
-          .map((p) => `    <rect x="${p.x}" y="${p.y}" width="1" height="1" fill="black" />`)
-          .join("\n")
+      ? marchingSquaresPath(transparentPixels, onFallback)
       : "";
 
   const maskSection =
-    maskRects.length > 0
+    maskPath.length > 0
       ? `  <mask id="transparentMask">
     <rect width="${width}" height="${height}" fill="white" />
-${maskRects}
+    <path d="${maskPath}" fill="black" fill-rule="evenodd" />
   </mask>`
       : "";
 
   const imageElement =
-    maskRects.length > 0
+    maskPath.length > 0
       ? `  <image href="${baseDataUrl}" width="${width}" height="${height}" mask="url(#transparentMask)" />`
       : `  <image href="${baseDataUrl}" width="${width}" height="${height}" />`;
 

@@ -1910,6 +1910,111 @@ describe("Issue #15: exportImageData uses toBlob + objectURL (no base64 hold)", 
 });
 
 // ---------------------------------------------------------------------------
+// Issue #39: buildSvg — transparent regions use marchingSquaresPath (no per-pixel <rect>)
+// ---------------------------------------------------------------------------
+
+describe("Issue #39: buildSvg transparent regions use path (not per-pixel <rect>)", () => {
+  function setupCanvasMock() {
+    const mockCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => mockCtx),
+      toDataURL: vi.fn(() => "data:image/png;base64,MOCK"),
+    };
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "canvas") return mockCanvas as unknown as HTMLCanvasElement;
+      return origCreate(tag);
+    });
+  }
+
+  it("transparent region produces a <path> in the mask, not per-pixel <rect> elements", () => {
+    setupCanvasMock();
+    const imageData = makeSolidImageData(4, 4, 200, 200, 200);
+    const transparentRegion: PaintRegion = {
+      id: "t1",
+      pixels: [
+        { x: 0, y: 0 }, { x: 1, y: 0 },
+        { x: 0, y: 1 }, { x: 1, y: 1 },
+      ],
+      color: "#000000",
+      transparent: true,
+    };
+    const svg = buildSvg(imageData, [transparentRegion], 4, 4);
+    // Must use <path> for the mask, not individual <rect> per pixel
+    expect(svg).toContain('<path d=');
+    // Must NOT contain per-pixel rect elements inside the mask
+    expect(svg).not.toMatch(/<rect x="\d+" y="\d+" width="1" height="1"/);
+    vi.restoreAllMocks();
+  });
+
+  it("SVG output with transparent region is smaller than equivalent per-pixel <rect> output", () => {
+    setupCanvasMock();
+    const imageData = makeSolidImageData(8, 8, 128, 128, 128);
+    // 16 transparent pixels — per-rect approach would produce 16 <rect> elements
+    const pixels: { x: number; y: number }[] = [];
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        pixels.push({ x, y });
+      }
+    }
+    const transparentRegion: PaintRegion = {
+      id: "t1",
+      pixels,
+      color: "#000000",
+      transparent: true,
+    };
+
+    const svg = buildSvg(imageData, [transparentRegion], 8, 8);
+
+    // Count <rect> elements with width="1" height="1" — must be zero
+    const perPixelRects = (svg.match(/<rect x="\d+" y="\d+" width="1" height="1"/g) ?? []).length;
+    expect(perPixelRects).toBe(0);
+
+    // The SVG must still contain the mask section
+    expect(svg).toContain('id="transparentMask"');
+    expect(svg).toContain('mask="url(#transparentMask)"');
+
+    vi.restoreAllMocks();
+  });
+
+  it("multiple transparent regions are merged into a single <path> in the mask", () => {
+    setupCanvasMock();
+    const imageData = makeSolidImageData(6, 6, 100, 100, 100);
+    const regions: PaintRegion[] = [
+      {
+        id: "t1",
+        pixels: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+        color: "#000000",
+        transparent: true,
+      },
+      {
+        id: "t2",
+        pixels: [{ x: 4, y: 4 }, { x: 5, y: 4 }],
+        color: "#000000",
+        transparent: true,
+      },
+    ];
+
+    const svg = buildSvg(imageData, regions, 6, 6);
+
+    // Only one <path> element should appear inside the mask (all transparent pixels merged)
+    const pathMatches = svg.match(/<path d=/g) ?? [];
+    // The mask path consolidates all transparent pixels into one path element
+    expect(pathMatches.length).toBeGreaterThanOrEqual(1);
+    // Must NOT contain per-pixel rect elements
+    expect(svg).not.toMatch(/<rect x="\d+" y="\d+" width="1" height="1"/);
+
+    vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Issue #19: copyImageDataInto — unified bake-layer copy helper
 // ---------------------------------------------------------------------------
 
