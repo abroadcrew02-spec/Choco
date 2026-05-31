@@ -34,6 +34,7 @@ import {
   HelpCircle,
   Sun,
   Moon,
+  Settings,
 } from "lucide-react";
 import {
   serializeProject,
@@ -72,7 +73,12 @@ import { HsvPicker } from "./components/HsvPicker";
 import { Tooltip } from "./components/Tooltip";
 import { Toast, type ToastMessage } from "./components/Toast";
 import { ShortcutHelp } from "./components/ShortcutHelp";
-import { WelcomeModal, hasSeenWelcome, markWelcomeSeen } from "./components/WelcomeModal";
+import { WelcomeModal, hasSeenWelcome, markWelcomeSeen, resetWelcomeSeen } from "./components/WelcomeModal";
+import {
+  SettingsModal,
+  loadDefaultPngScale,
+  saveDefaultPngScale,
+} from "./components/SettingsModal";
 import {
   ExportModal,
   getMimeType,
@@ -343,6 +349,10 @@ export function MvpEditor() {
 
   // Issue #29: welcome modal
   const [showWelcome, setShowWelcome] = useState<boolean>(() => !hasSeenWelcome());
+
+  // Issue #52: settings modal
+  const [settingsModalOpen, setSettingsModalOpen] = useState<boolean>(false);
+  const [defaultPngScale, setDefaultPngScale] = useState(() => loadDefaultPngScale());
 
   // Issue #7: recent files dropdown
   const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>(() => getRecentFiles());
@@ -2895,11 +2905,22 @@ export function MvpEditor() {
               <Square size={18} />
             </button>
           </Tooltip>
+          {/* Issue #52: Settings modal */}
+          <Tooltip label={t("label.settings", lang)}>
+            <button
+              type="button"
+              onClick={() => setSettingsModalOpen(true)}
+              style={{ ...leftToolBtnStyle, marginTop: "auto" }}
+              aria-label={t("label.settings", lang)}
+            >
+              <Settings size={18} />
+            </button>
+          </Tooltip>
           <Tooltip label={themeMode === "dark" ? "ライトテーマに切替" : "ダークテーマに切替"}>
             <button
               type="button"
               onClick={toggleTheme}
-              style={{ ...leftToolBtnStyle, marginTop: "auto" }}
+              style={leftToolBtnStyle}
               aria-label={themeMode === "dark" ? "ライトテーマに切替" : "ダークテーマに切替"}
               aria-pressed={themeMode === "light"}
             >
@@ -3498,6 +3519,7 @@ export function MvpEditor() {
           onExport={handleExport}
           onClose={() => setExportModalOpen(false)}
           lang={lang}
+          initialScale={defaultPngScale}
         />
       )}
 
@@ -3514,6 +3536,26 @@ export function MvpEditor() {
       {/* Issue #29: Welcome modal */}
       {showWelcome && (
         <WelcomeModal lang={lang} onClose={handleWelcomeClose} />
+      )}
+
+      {/* Issue #52: Settings modal */}
+      {settingsModalOpen && (
+        <SettingsModal
+          lang={lang}
+          themeMode={themeMode}
+          defaultPngScale={defaultPngScale}
+          onLangChange={setLang}
+          onThemeToggle={toggleTheme}
+          onDefaultPngScaleChange={(s) => {
+            setDefaultPngScale(s);
+            saveDefaultPngScale(s);
+          }}
+          onReshowWelcome={() => {
+            resetWelcomeSeen();
+            setShowWelcome(true);
+          }}
+          onClose={() => setSettingsModalOpen(false)}
+        />
       )}
     </div>
   );

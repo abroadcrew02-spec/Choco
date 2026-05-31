@@ -59,6 +59,7 @@ interface ExportModalProps {
   onExport: (options: ExportOptions) => void;
   onClose: () => void;
   lang: Lang;
+  initialScale?: ScalePreset;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,9 +145,10 @@ export function ExportModal({
   onExport,
   onClose,
   lang,
+  initialScale = "1x",
 }: ExportModalProps) {
   const [format, setFormat] = useState<ExportFormat>("png");
-  const [scale, setScale] = useState<ScalePreset>("1x");
+  const [scale, setScale] = useState<ScalePreset>(initialScale);
   const [quality, setQuality] = useState(90);
   const [customWidth, setCustomWidth] = useState(naturalWidth);
   const [customHeight, setCustomHeight] = useState(naturalHeight);

@@ -201,6 +201,20 @@ export const dict: Record<Lang, Record<string, string>> = {
     "welcome.hint": "ヘルプ (?) からいつでもショートカット一覧を確認できます",
     "welcome.start": "始める",
     "welcome.reshow": "使い方を見る",
+
+    // Settings modal (Issue #52)
+    "settings.title": "設定",
+    "settings.language": "言語",
+    "settings.theme": "テーマ",
+    "settings.themeDark": "ダーク",
+    "settings.themeLight": "ライト",
+    "settings.pngScale": "デフォルト PNG 倍率",
+    "settings.undoLimit": "Undo 履歴上限",
+    "settings.undoLimitNote": "現在のセッションに反映済み（変更不要）",
+    "settings.reshowWelcome": "使い方を再表示",
+    "settings.reshowWelcomeBtn": "ウェルカム画面を表示",
+    "settings.close": "閉じる",
+    "label.settings": "設定",
   },
 
   en: {
@@ -392,6 +406,20 @@ export const dict: Record<Lang, Record<string, string>> = {
     "welcome.hint": "Press ? (Help) anytime to see keyboard shortcuts",
     "welcome.start": "Get started",
     "welcome.reshow": "Show intro",
+
+    // Settings modal (Issue #52)
+    "settings.title": "Settings",
+    "settings.language": "Language",
+    "settings.theme": "Theme",
+    "settings.themeDark": "Dark",
+    "settings.themeLight": "Light",
+    "settings.pngScale": "Default PNG scale",
+    "settings.undoLimit": "Undo history limit",
+    "settings.undoLimitNote": "Applied to current session (no change needed)",
+    "settings.reshowWelcome": "Show intro",
+    "settings.reshowWelcomeBtn": "Show welcome screen",
+    "settings.close": "Close",
+    "label.settings": "Settings",
   },
 };
 
