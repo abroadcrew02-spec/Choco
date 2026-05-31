@@ -305,8 +305,8 @@ export function smoothReplaceAll(
   const [fr, fg, fb] = newColor;
 
   const resultData = new Uint8ClampedArray(data);
-  const t2 = tolerance * tolerance * 4;
-  const denom = tolerance * 2;
+  const t2 = tolerance * tolerance;
+  const denom = tolerance;
 
   for (let i = 0; i < width * height; i++) {
     const k = i * 4;

@@ -631,7 +631,7 @@ describe("smoothReplaceAll", () => {
   it("smooth replace: center pixel (dist=0) gets blend factor 1.0 and is fully replaced", () => {
     const base = makeSolidImageData(1, 1, 200, 100, 50);
     const result = smoothReplaceAll(base, 0, 0, 30, [0, 255, 0], true);
-    // dist2=0, a=1-0/(30*2)=1 → fully replaced
+    // dist2=0, a=1-0/30=1 → fully replaced
     expect(result.data[0]).toBe(0);
     expect(result.data[1]).toBe(255);
     expect(result.data[2]).toBe(0);
@@ -645,7 +645,7 @@ describe("smoothReplaceAll", () => {
     const img = new ImageData(data, 2, 1);
     const result = smoothReplaceAll(img, 0, 0, 30, [0, 255, 0], true);
     // (1,0) should be partially blended (not fully replaced)
-    // a = 1 - 10 / 60 ≈ 0.833, so R should be between 0 and 210
+    // a = 1 - 10 / 30 ≈ 0.667, so R should be between 0 and 210
     expect(result.data[4]).toBeGreaterThan(0);
     expect(result.data[4]).toBeLessThan(210);
     expect(result.data[5]).toBeGreaterThan(100); // blended toward 255
