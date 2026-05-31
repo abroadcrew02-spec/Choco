@@ -20,7 +20,7 @@
  * }
  */
 
-import type { PaintRegion } from "../MvpEditor";
+import type { PaintRegion } from "./imageProcessing";
 
 // ---------------------------------------------------------------------------
 // Types

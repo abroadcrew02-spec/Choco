@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState } from "react";
 import { HISTORY_LIMIT } from "./useUndoRedo";
-import type { PaintRegion } from "../MvpEditor";
+import type { PaintRegion } from "../lib/imageProcessing";
 
 /**
  * Snapshot type for one atomic history entry.

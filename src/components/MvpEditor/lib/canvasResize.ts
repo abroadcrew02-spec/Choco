@@ -1,4 +1,4 @@
-import type { PaintRegion } from "../MvpEditor";
+import type { PaintRegion } from "./imageProcessing";
 
 /**
  * Anchor position for canvas resize operations.
