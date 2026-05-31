@@ -886,7 +886,7 @@ export function MvpEditor() {
       }
 
       const newRegion: PaintRegion = {
-        id: `region-${Date.now()}`,
+        id: `region-${crypto.randomUUID()}`,
         pixels: replacePixels,
         color: selectedColor,
         transparent: false,
@@ -936,7 +936,7 @@ export function MvpEditor() {
       }
 
       const newRegion: PaintRegion = {
-        id: `region-${Date.now()}`,
+        id: `region-${crypto.randomUUID()}`,
         pixels,
         color: selectedColor,
         transparent: mode === "transparent",
@@ -1566,7 +1566,7 @@ export function MvpEditor() {
       return;
     }
     const newRegion: PaintRegion = {
-      id: `region-${Date.now()}`,
+      id: `region-${crypto.randomUUID()}`,
       pixels,
       color: "#ffffff",
       transparent: true,
