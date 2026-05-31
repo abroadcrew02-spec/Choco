@@ -2442,7 +2442,9 @@ export function MvpEditor() {
             {/* Tolerance — color / replace-all / transparent modes */}
             {(mode === "color" || mode === "replace-all" || mode === "transparent") && (
               <>
-                <span style={labelStyle}>{t("prop.tolerance", lang)}: {tolerance}</span>
+                <Tooltip label={t("prop.toleranceTip", lang)}>
+                  <span style={labelStyle}>{t("prop.tolerance", lang)}: {tolerance}</span>
+                </Tooltip>
                 <input
                   type="range"
                   min={0}
@@ -2450,7 +2452,6 @@ export function MvpEditor() {
                   value={tolerance}
                   onChange={(e) => setTolerance(Number(e.target.value))}
                   style={{ width: 72 }}
-                  title="色許容値"
                   aria-label={t("aria.tolerance", lang)}
                   aria-valuetext={String(tolerance)}
                 />
@@ -2460,7 +2461,9 @@ export function MvpEditor() {
             {/* Hole-fill — color / replace-all / transparent modes */}
             {(mode === "color" || mode === "replace-all" || mode === "transparent") && (
               <>
-                <span style={labelStyle}>{t("prop.holeFill", lang)}: {closeRadius}</span>
+                <Tooltip label={t("prop.holeFillTip", lang)}>
+                  <span style={labelStyle}>{t("prop.holeFill", lang)}: {closeRadius}</span>
+                </Tooltip>
                 <input
                   type="range"
                   min={0}
@@ -2469,7 +2472,6 @@ export function MvpEditor() {
                   value={closeRadius}
                   onChange={(e) => setCloseRadius(Number(e.target.value))}
                   style={{ width: 54 }}
-                  title="穴埋め半径 (0=OFF, クロージング半径 1-5)"
                   aria-label={t("aria.holeFill", lang)}
                   aria-valuetext={closeRadius === 0 ? "OFF" : String(closeRadius)}
                 />
@@ -2479,7 +2481,9 @@ export function MvpEditor() {
             {/* Feather radius — transparent mode */}
             {mode === "transparent" && (
               <>
-                <span style={labelStyle}>{t("prop.feather", lang)}: {featherRadius}</span>
+                <Tooltip label={t("prop.featherTip", lang)}>
+                  <span style={labelStyle}>{t("prop.feather", lang)}: {featherRadius}</span>
+                </Tooltip>
                 <input
                   type="range"
                   min={0}
@@ -2488,7 +2492,6 @@ export function MvpEditor() {
                   value={featherRadius}
                   onChange={(e) => setFeatherRadius(Number(e.target.value))}
                   style={{ width: 62 }}
-                  title="フェザー (境界ぼかし) 0=OFF, 1-20px"
                   aria-label={t("aria.feather", lang)}
                   aria-valuetext={featherRadius === 0 ? "OFF" : `${featherRadius}px`}
                 />
@@ -2510,27 +2513,31 @@ export function MvpEditor() {
 
             {/* Antialias boundary — color / transparent modes */}
             {(mode === "color" || mode === "transparent") && (
-              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title={t("prop.antialiasEdge", lang)}>
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                 <input
                   type="checkbox"
                   checked={includeAntialias}
                   onChange={(e) => setIncludeAntialias(e.target.checked)}
                   style={{ cursor: "pointer" }}
                 />
-                {t("prop.antialiasEdge", lang)}
+                <Tooltip label={t("prop.antialiasEdgeTip", lang)}>
+                  <span>{t("prop.antialiasEdge", lang)}</span>
+                </Tooltip>
               </label>
             )}
 
             {/* 8-neighbor connectivity — color / transparent modes */}
             {(mode === "color" || mode === "transparent") && (
-              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title={t("prop.8neighbor", lang)}>
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                 <input
                   type="checkbox"
                   checked={connectivity === 8}
                   onChange={(e) => setConnectivity(e.target.checked ? 8 : 4)}
                   style={{ cursor: "pointer" }}
                 />
-                {t("prop.8neighbor", lang)}
+                <Tooltip label={t("prop.8neighborTip", lang)}>
+                  <span>{t("prop.8neighbor", lang)}</span>
+                </Tooltip>
               </label>
             )}
 
